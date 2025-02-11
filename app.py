@@ -3,6 +3,13 @@ import sympy as sp
 import numpy as np
 import plotly.graph_objects as go
 
+# Configure Streamlit for Hugging Face Spaces
+st.set_page_config(
+    page_title="Cubic Root Analysis",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 #############################
 # 1) Define the discriminant
 #############################
@@ -12,7 +19,7 @@ z_sym, beta_sym, z_a_sym, y_sym = sp.symbols("z beta z_a y", real=True, positive
 
 # Define a, b, c, d in terms of z_sym, beta_sym, z_a_sym, y_sym
 a_sym = z_sym * z_a_sym
-b_sym = z_sym * z_a_sym + z_sym + z_a_sym
+b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym  # Fixed coefficient b
 c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
 d_sym = 1
 
@@ -167,7 +174,7 @@ def compute_cubic_roots(z, beta, z_a, y):
     Returns array of complex roots.
     """
     a = z * z_a
-    b = z * z_a + z + z_a
+    b = z * z_a + z + z_a - z_a*y  # Fixed coefficient b
     c = z + z_a + 1 - y*(beta*z_a + 1 - beta)
     d = 1
     
@@ -212,8 +219,6 @@ def generate_ims_vs_z_plot(beta, y, z_a, z_min, z_max):
     return fig
 
 # Streamlit UI
-st.set_page_config(page_title="Cubic Root Analysis", layout="wide")
-
 st.title("Cubic Root Analysis")
 
 tab1, tab2 = st.tabs(["z*(β) Curves", "Im{s} vs. z"])
