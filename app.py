@@ -196,7 +196,6 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max):
 def compute_cubic_roots(z, beta, z_a, y):
    """
    Compute the roots of the cubic equation for given parameters.
-   Returns array of complex roots.
    """
    a = z * z_a
    b = z * z_a + z + z_a - z_a*y
@@ -252,45 +251,70 @@ def curve2(s, y, beta, a):
    return y*beta*((a-1)*s)/(a*s+1)
 
 def find_intersections(z, y, beta, a, s_range):
-   """Find intersections between the two curves"""
+   """Find intersections between the two curves with improved accuracy"""
    def equation(s):
        return curve1(s, z, y) - curve2(s, y, beta, a)
    
-   # Create grid of initial guesses
-   s_guesses = np.linspace(s_range[0], s_range[1], 20)
+   # Create a finer grid of initial guesses
+   s_guesses = np.linspace(s_range[0], s_range[1], 200)
    intersections = []
    
+   # Parameters for accuracy
+   tolerance = 1e-10
+   
+   # First pass: find all potential intersections
    for s_guess in s_guesses:
        try:
-           s_sol = fsolve(equation, s_guess)[0]
-           # Check if solution is within range and not already found
-           if (s_range[0] <= s_sol <= s_range[1] and 
-               not any(abs(s_sol - s_prev) < 1e-6 for s_prev in intersections)):
-               intersections.append(s_sol)
+           s_sol = fsolve(equation, s_guess, full_output=True, xtol=tolerance)
+           if s_sol[2] == 1:  # Check if convergence was achieved
+               s_val = s_sol[0][0]
+               if (s_range[0] <= s_val <= s_range[1] and 
+                   not any(abs(s_val - s_prev) < tolerance for s_prev in intersections)):
+                   if abs(equation(s_val)) < tolerance:
+                       intersections.append(s_val)
        except:
            continue
-           
-   return np.array(intersections)
+   
+   # Sort intersections
+   intersections = np.sort(np.array(intersections))
+   
+   # Ensure even number of intersections by checking for missed ones
+   if len(intersections) % 2 != 0:
+       refined_intersections = []
+       for i in range(len(intersections)-1):
+           mid_point = (intersections[i] + intersections[i+1])/2
+           try:
+               s_sol = fsolve(equation, mid_point, full_output=True, xtol=tolerance)
+               if s_sol[2] == 1:
+                   s_val = s_sol[0][0]
+                   if (intersections[i] < s_val < intersections[i+1] and 
+                       abs(equation(s_val)) < tolerance):
+                       refined_intersections.append(s_val)
+           except:
+               continue
+       
+       intersections = np.sort(np.append(intersections, refined_intersections))
+   
+   return intersections
 
 def generate_curves_plot(z, y, beta, a, s_range):
-   s = np.linspace(s_range[0], s_range[1], 1000)
+   s = np.linspace(s_range[0], s_range[1], 2000)
    
    # Compute curves
    y1 = curve1(s, z, y)
    y2 = curve2(s, y, beta, a)
    
-   # Find intersections
+   # Find intersections with improved accuracy
    intersections = find_intersections(z, y, beta, a, s_range)
    
    fig = go.Figure()
    
-   # Plot curves
    fig.add_trace(
        go.Scatter(
            x=s, y=y1,
            mode='lines',
            name='z*s² + (z-y+1)*s + 1',
-           line=dict(color='blue')
+           line=dict(color='blue', width=2)
        )
    )
    
@@ -299,11 +323,10 @@ def generate_curves_plot(z, y, beta, a, s_range):
            x=s, y=y2,
            mode='lines',
            name='y*β*((a-1)*s)/(a*s+1)',
-           line=dict(color='red')
+           line=dict(color='red', width=2)
        )
    )
    
-   # Plot intersections
    if len(intersections) > 0:
        fig.add_trace(
            go.Scatter(
@@ -312,18 +335,26 @@ def generate_curves_plot(z, y, beta, a, s_range):
                mode='markers',
                name='Intersections',
                marker=dict(
-                   size=10,
+                   size=12,
                    color='green',
-                   symbol='x'
+                   symbol='x',
+                   line=dict(width=2)
                )
            )
        )
    
    fig.update_layout(
-       title=f"Curve Intersection Analysis (y={y:.2f}, β={beta:.2f}, a={a:.2f})",
+       title=f"Curve Intersection Analysis (y={y:.4f}, β={beta:.4f}, a={a:.4f})",
        xaxis_title="s",
        yaxis_title="Value",
-       hovermode="closest"
+       hovermode="closest",
+       showlegend=True,
+       legend=dict(
+           yanchor="top",
+           y=0.99,
+           xanchor="left",
+           x=0.01
+       )
    )
    
    return fig, intersections
@@ -343,27 +374,27 @@ with tab1:
        y_1 = st.number_input("y", value=1.0, key="y_1")
        z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
        z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
-       
-       if st.button("Compute z vs. β Curves"):
-           with col2:
-               fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1)
-               if fig is not None:
-                   st.plotly_chart(fig, use_container_width=True)
-                   
-                   st.markdown("### Additional Expressions")
-                   st.markdown("""
-                   **Low y Expression (Red):**
-                   ```
-                   ((y - 2)*(-1 + sqrt(y*β*(a-1)))/a + y*β*((a-1)/a) - 1/a - 1) / 
-                   ((-1 + sqrt(y*β*(a-1)))/a)^2 + (-1 + sqrt(y*β*(a-1)))/a)
-                   ```
-                   
-                   **High y Expression (Green):**
-                   ```
-                   ((4y + 12)(4 - a) + 16y*β*(a - 1))/(3(4 - a))
-                   ```
-                   where a = z_a
-                   """)
+        
+        if st.button("Compute z vs. β Curves"):
+            with col2:
+                fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1)
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.markdown("### Additional Expressions")
+                    st.markdown("""
+                    **Low y Expression (Red):**
+                    ```
+                    ((y - 2)*(-1 + sqrt(y*β*(a-1)))/a + y*β*((a-1)/a) - 1/a - 1) / 
+                    ((-1 + sqrt(y*β*(a-1)))/a)^2 + (-1 + sqrt(y*β*(a-1)))/a)
+                    ```
+                    
+                    **High y Expression (Green):**
+                    ```
+                    ((4y + 12)(4 - a) + 16y*β*(a - 1))/(3(4 - a))
+                    ```
+                    where a = z_a
+                    """)
 
 with tab2:
     st.header("Plot Imaginary Parts of Roots vs. z")
@@ -389,7 +420,6 @@ with tab3:
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        # Add sliders for parameters
         z = st.slider("z", min_value=-10.0, max_value=10.0, value=1.0, step=0.1)
         y_3 = st.slider("y", min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="y_3")
         beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_3")
@@ -410,6 +440,6 @@ with tab3:
                     st.subheader("Intersection Points")
                     for i, s_val in enumerate(intersections):
                         y_val = curve1(s_val, z, y_3)
-                        st.write(f"Point {i+1}: s = {s_val:.4f}, y = {y_val:.4f}")
+                        st.write(f"Point {i+1}: s = {s_val:.6f}, y = {y_val:.6f}")
                 else:
                     st.write("No intersections found in the given range.")
