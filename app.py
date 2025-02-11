@@ -365,36 +365,36 @@ st.title("Cubic Root Analysis")
 tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections"])
 
 with tab1:
-   st.header("Find z Values where Cubic Roots Transition Between Real and Complex")
-   
-   col1, col2 = st.columns([1, 2])
-   
-   with col1:
-       z_a_1 = st.number_input("z_a", value=1.0, key="z_a_1")
-       y_1 = st.number_input("y", value=1.0, key="y_1")
-       z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
-       z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
+    st.header("Find z Values where Cubic Roots Transition Between Real and Complex")
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        z_a_1 = st.number_input("z_a", value=1.0, key="z_a_1")
+        y_1 = st.number_input("y", value=1.0, key="y_1")
+        z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
+        z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
         
-        if st.button("Compute z vs. β Curves"):
-            with col2:
-                fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1)
-                if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    st.markdown("### Additional Expressions")
-                    st.markdown("""
-                    **Low y Expression (Red):**
-                    ```
-                    ((y - 2)*(-1 + sqrt(y*β*(a-1)))/a + y*β*((a-1)/a) - 1/a - 1) / 
-                    ((-1 + sqrt(y*β*(a-1)))/a)^2 + (-1 + sqrt(y*β*(a-1)))/a)
-                    ```
-                    
-                    **High y Expression (Green):**
-                    ```
-                    ((4y + 12)(4 - a) + 16y*β*(a - 1))/(3(4 - a))
-                    ```
-                    where a = z_a
-                    """)
+    if st.button("Compute z vs. β Curves"):
+        with col2:
+            fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1)
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("### Additional Expressions")
+                st.markdown("""
+                **Low y Expression (Red):**
+                ```
+                ((y - 2)*(-1 + sqrt(y*β*(a-1)))/a + y*β*((a-1)/a) - 1/a - 1) / 
+                ((-1 + sqrt(y*β*(a-1)))/a)^2 + (-1 + sqrt(y*β*(a-1)))/a)
+                ```
+                
+                **High y Expression (Green):**
+                ```
+                ((4y + 12)(4 - a) + 16y*β*(a - 1))/(3(4 - a))
+                ```
+                where a = z_a
+                """)
 
 with tab2:
     st.header("Plot Imaginary Parts of Roots vs. z")
@@ -408,11 +408,11 @@ with tab2:
         z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_2")
         z_max_2 = st.number_input("z_max", value=10.0, key="z_max_2")
         
-        if st.button("Compute Im{s} vs. z"):
-            with col2:
-                fig = generate_ims_vs_z_plot(beta, y_2, z_a_2, z_min_2, z_max_2)
-                if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True)
+    if st.button("Compute Im{s} vs. z"):
+        with col2:
+            fig = generate_ims_vs_z_plot(beta, y_2, z_a_2, z_min_2, z_max_2)
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True)
 
 with tab3:
     st.header("Curve Intersection Analysis")
@@ -430,16 +430,16 @@ with tab3:
         s_min = st.number_input("s_min", value=-5.0)
         s_max = st.number_input("s_max", value=5.0)
         
-        if st.button("Compute Intersections"):
-            with col2:
-                s_range = (s_min, s_max)
-                fig, intersections = generate_curves_plot(z, y_3, beta_3, a, s_range)
-                st.plotly_chart(fig, use_container_width=True)
-                
-                if len(intersections) > 0:
-                    st.subheader("Intersection Points")
-                    for i, s_val in enumerate(intersections):
-                        y_val = curve1(s_val, z, y_3)
-                        st.write(f"Point {i+1}: s = {s_val:.6f}, y = {y_val:.6f}")
-                else:
-                    st.write("No intersections found in the given range.")
+    if st.button("Compute Intersections"):
+        with col2:
+            s_range = (s_min, s_max)
+            fig, intersections = generate_curves_plot(z, y_3, beta_3, a, s_range)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            if len(intersections) > 0:
+                st.subheader("Intersection Points")
+                for i, s_val in enumerate(intersections):
+                    y_val = curve1(s_val, z, y_3)
+                    st.write(f"Point {i+1}: s = {s_val:.6f}, y = {y_val:.6f}")
+            else:
+                st.write("No intersections found in the given range.")
