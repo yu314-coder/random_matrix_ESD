@@ -124,16 +124,12 @@ def compute_high_y_curve(betas, z_a, y):
     a = z_a  # for clarity in the formula
     betas = np.array(betas)
     
-    with np.errstate(invalid='ignore', divide='ignore'):
-        numerator = (4*y + 12)*(4 - a) + 16*y*betas*(a - 1)
-        denominator = 3*(4 - a)
+    denominator = 3*(4 - a)
+    if denominator == 0:
+        return np.full_like(betas, np.nan)
         
-        result = np.zeros_like(betas)
-        mask = (denominator != 0)
-        result[mask] = numerator[mask] / denominator[mask]
-        result[~mask] = np.nan
-        
-        return result
+    numerator = (4*y + 12)*(4 - a) + 16*y*betas*(a - 1)
+    return numerator/denominator
 
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max):
     if z_a <= 0 or y <= 0 or z_min >= z_max:
