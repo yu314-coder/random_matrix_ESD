@@ -317,59 +317,59 @@ def find_intersections(z, y, beta, a, s_range, n_guesses, tolerance):
    return intersections
 
 def generate_curves_plot(z, y, beta, a, s_range, n_points, n_guesses, tolerance):
-   s = np.linspace(s_range[0], s_range[1], n_points)
-   
-   # Compute curves
-   y1 = curve1(s, z, y)
-   y2 = curve2(s, y, beta, a)
-   
-   # Find intersections with improved accuracy
-   intersections = find_intersections(z, y, beta, a, s_range, n_guesses, tolerance)
-   
-   fig = go.Figure()
-   
-   fig.add_trace(
-       go.Scatter(
-           x=s, y=y1,
-           mode='lines',
-           name='z*s² + (z-y+1)*s + 1',
-           line=dict(color='blue', width=2)
-       )
-   )
-   
-   fig.add_trace(
-       go.Scatter(
-           x=s, y=y2,
-           mode='lines',
-           name='y*β*((a-1)*s)/(a*s+1)',
-           line=dict(color='red', width=2)
-       )
-   )
-   
-   if len(intersections) > 0:
-       fig.add_trace(
-           go.Scatter(
-               x=intersections,
-               y=curve1(intersections, z, y),
-               mode='markers',
-               name='Intersections',
-               marker=dict(
-                   size=12,
-                   color='green',
-                   symbol='x',
-                   line=dict(width=2)
-               )
-           )
-       )
-   
-   fig.update_layout(
-       title=f"Curve Intersection Analysis (y={y:.4f}, β={beta:.4f}, a={a:.4f})",
-       xaxis_title="s",
-       yaxis_title="Value",
-       hovermode="closest",
-       showlegend=True,
-       legend=dict(
-           yanchor="top",
+    s = np.linspace(s_range[0], s_range[1], n_points)
+    
+    # Compute curves
+    y1 = curve1(s, z, y)
+    y2 = curve2(s, y, beta, a)
+    
+    # Find intersections with improved accuracy
+    intersections = find_intersections(z, y, beta, a, s_range, n_guesses, tolerance)
+    
+    fig = go.Figure()
+    
+    fig.add_trace(
+        go.Scatter(
+            x=s, y=y1,
+            mode='lines',
+            name='z*s² + (z-y+1)*s + 1',
+            line=dict(color='blue', width=2)
+        )
+    )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=s, y=y2,
+            mode='lines',
+            name='y*β*((a-1)*s)/(a*s+1)',
+            line=dict(color='red', width=2)
+        )
+    )
+    
+    if len(intersections) > 0:
+        fig.add_trace(
+            go.Scatter(
+                x=intersections,
+                y=curve1(intersections, z, y),
+                mode='markers',
+                name='Intersections',
+                marker=dict(
+                    size=12,
+                    color='green',
+                    symbol='x',
+                    line=dict(width=2)
+                )
+            )
+        )
+    
+    fig.update_layout(
+        title=f"Curve Intersection Analysis (y={y:.4f}, β={beta:.4f}, a={a:.4f})",
+        xaxis_title="s",
+        yaxis_title="Value",
+        hovermode="closest",
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
             y=0.99,
             xanchor="left",
             x=0.01
