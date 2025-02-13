@@ -415,7 +415,7 @@ with tab1:
                 
                 **High y Expression (Green):**
                 ```
-                ((4y + 12)(4 - a) + 16y*β*(a - 1))/(3(4 - a))
+                (- 4 a ( a - 1 )*y*β - 2a*y + 2a*( 2 a - 1 ) )/( 1 - 2 a ) 
                 ```
                 where a = z_a
                 """)
@@ -448,10 +448,10 @@ with tab3:
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        z = st.slider("z", min_value=-10.0, max_value=10.0, value=1.0, step=0.1)
-        y_3 = st.slider("y", min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="y_3")
+        z = st.slider("z", min_value=-10.0, max_value=10000.0, value=1.0, step=0.1)
+        y_3 = st.slider("y", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="y_3")
         beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_3")
-        a = st.slider("a", min_value=0.1, max_value=10.0, value=1.0, step=0.1)
+        a = st.slider("a", min_value=0.1, max_value=1000.0, value=1.0, step=0.1)
         
         st.subheader("s Range")
         s_min = st.number_input("s_min", value=-5.0)
@@ -462,7 +462,7 @@ with tab3:
             intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100)
             intersection_tolerance = st.select_slider(
                 "Intersection tolerance",
-                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14],
+                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14,1e-16,1e-18,1e-20],
                 value=1e-10
             )
         
