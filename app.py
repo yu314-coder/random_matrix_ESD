@@ -125,7 +125,7 @@ def compute_high_y_curve(betas, z_a, y):
     if denominator == 0:
         return np.full_like(betas, np.nan)
         
-    numerator = -4*a*(a-1)*y*betas - 2*a*y + 2*a*(2*a-1)
+    numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
     return numerator/denominator
 
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps):
