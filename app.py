@@ -106,8 +106,6 @@ def compute_low_y_curve(betas, z_a, y):
        sqrt_term = np.where(sqrt_term < 0, np.nan, np.sqrt(sqrt_term))
        
        term = (-1 + sqrt_term)/z_a
-      # numerator = 4* z_a * y * beta * (z_a-1) -6 * z_a * (1-y) - 12 * a**2  
-       #denominator = (1+2*z_a)*3
        numerator = (y - 2)*term + y * betas * ((z_a - 1)/z_a) - 1/z_a - 1
        denominator = term**2 + term
        # Handle division by zero and invalid values
@@ -129,7 +127,27 @@ def compute_high_y_curve(betas, z_a, y):
     numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
     return numerator/denominator
 
-def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps):
+@st.cache_data
+def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
+    """
+    Compute a custom curve given numerator and denominator expressions 
+    as strings that can depend on z_a, beta, and y.
+    """
+    beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
+    try:
+        num_expr = sp.sympify(num_expr_str)
+        denom_expr = sp.sympify(denom_expr_str)
+    except sp.SympifyError:
+        return np.full_like(betas, np.nan)
+    
+    num_func = sp.lambdify((beta_sym, z_a_sym, y_sym), num_expr, "numpy")
+    denom_func = sp.lambdify((beta_sym, z_a_sym, y_sym), denom_expr, "numpy")
+    with np.errstate(divide='ignore', invalid='ignore'):
+        result = num_func(betas, z_a, y) / denom_func(betas, z_a, y)
+    return result
+
+def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
+                            custom_num_expr=None, custom_denom_expr=None):
    if z_a <= 0 or y <= 0 or z_min >= z_max:
        st.error("Invalid input parameters.")
        return None
@@ -186,8 +204,22 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps):
        )
    )
    
+   # Add custom expression if both numerator and denominator are provided
+   if custom_num_expr and custom_denom_expr:
+       custom_curve = compute_custom_expression(betas, z_a, y, custom_num_expr, custom_denom_expr)
+       fig.add_trace(
+           go.Scatter(
+               x=betas,
+               y=custom_curve,
+               mode="markers+lines",
+               name="Custom Expression",
+               marker=dict(size=5, color='purple'),
+               line=dict(color='purple'),
+           )
+       )
+   
    fig.update_layout(
-       title="Curves vs β: z*(β) boundaries and Asymptotic Expressions",
+       title="Curves vs β: z*(β) Boundaries and Asymptotic Expressions",
        xaxis_title="β",
        yaxis_title="Value",
        hovermode="x unified",
@@ -400,9 +432,18 @@ with tab1:
             beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50)
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000)
         
+        st.subheader("Custom Expression")
+        st.markdown("Enter a **numerator** and a **denominator** expression as functions of `z_a`, `beta`, and `y`.")
+        default_num = "(y - 2)*((-1 + sqrt(y*beta*(z_a - 1)))/z_a) + y*beta*((z_a-1)/z_a) - 1/z_a - 1"
+        default_denom = "((-1 + sqrt(y*beta*(z_a - 1)))/z_a)**2 + ((-1 + sqrt(y*beta*(z_a - 1)))/z_a)"
+        custom_num_expr = st.text_input("Numerator Expression", value=default_num)
+        custom_denom_expr = st.text_input("Denominator Expression", value=default_denom)
+        
     if st.button("Compute z vs. β Curves"):
         with col2:
-            fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps)
+            fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1,
+                                          beta_steps, z_steps,
+                                          custom_num_expr, custom_denom_expr)
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -410,17 +451,17 @@ with tab1:
                 st.markdown("""
                 **Low y Expression (Red):**
                 ```
-                ((y - 2)*(-1 + sqrt(y*β*(a-1)))/a + y*β*((a-1)/a) - 1/a - 1) / 
-                ((-1 + sqrt(y*β*(a-1)))/a)^2 + (-1 + sqrt(y*β*(a-1)))/a)
+                ((y - 2)*(-1 + sqrt(y*β*(z_a-1)))/z_a + y*β*((z_a-1)/z_a) - 1/z_a - 1) / 
+                (((-1 + sqrt(y*β*(z_a-1)))/z_a)**2 + ((-1 + sqrt(y*β*(z_a-1)))/z_a))
                 ```
                 
                 **High y Expression (Green):**
                 ```
-                (- 4 a ( a - 1 )*y*β - 2a*y + 2a*( 2 a - 1 ) )/( 1 - 2 a ) 
+                (- 4 z_a*(z_a-1)*y*β - 2z_a*y + 2z_a*(2z_a-1))/(1-2z_a)
                 ```
-                where a = z_a
+                where z_a is the input parameter.
                 """)
-
+                
 with tab2:
     st.header("Plot Complex Roots vs. z")
     
@@ -463,7 +504,7 @@ with tab3:
             intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100)
             intersection_tolerance = st.select_slider(
                 "Intersection tolerance",
-                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14,1e-16,1e-18,1e-20],
+                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14, 1e-16, 1e-18, 1e-20],
                 value=1e-10
             )
         
