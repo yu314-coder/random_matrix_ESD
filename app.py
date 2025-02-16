@@ -127,24 +127,31 @@ def compute_high_y_curve(betas, z_a, y):
     numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
     return numerator/denominator
 
-@st.cache_data
+
 def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
     """
     Compute a custom curve given numerator and denominator expressions 
     as strings that can depend on z_a, beta, and y.
+    Allows 'a' as an alias for z_a.
     """
-    beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
+    # Define allowed symbols. Also allow 'a' as an alias for z_a.
+    beta_sym, z_a_sym, y_sym, a_sym = sp.symbols("beta z_a y a", positive=True)
+    local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "a": z_a_sym}
+    
     try:
-        num_expr = sp.sympify(num_expr_str)
-        denom_expr = sp.sympify(denom_expr_str)
-    except sp.SympifyError:
+        num_expr = sp.sympify(num_expr_str, locals=local_dict)
+        denom_expr = sp.sympify(denom_expr_str, locals=local_dict)
+    except sp.SympifyError as e:
+        st.error(f"Error parsing expressions: {e}")
         return np.full_like(betas, np.nan)
     
-    num_func = sp.lambdify((beta_sym, z_a_sym, y_sym), num_expr, "numpy")
-    denom_func = sp.lambdify((beta_sym, z_a_sym, y_sym), denom_expr, "numpy")
+    num_func = sp.lambdify((beta_sym, z_a_sym, y_sym), num_expr, modules=["numpy"])
+    denom_func = sp.lambdify((beta_sym, z_a_sym, y_sym), denom_expr, modules=["numpy"])
+    
     with np.errstate(divide='ignore', invalid='ignore'):
         result = num_func(betas, z_a, y) / denom_func(betas, z_a, y)
     return result
+
 
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                             custom_num_expr=None, custom_denom_expr=None):
