@@ -107,7 +107,7 @@ def compute_low_y_curve(betas, z_a, y):
        
        term = (-1 + sqrt_term)/z_a
        numerator = 4* z_a * y * beta * (z_a-1) -6 * z_a * (1-y) - 12 * a**2  
-       denominator = (1+2*z_a)3
+       denominator = (1+2*z_a)*3
       # numerator = (y - 2)*term + y * betas * ((z_a - 1)/z_a) - 1/z_a - 1
        #denominator = term**2 + term
        # Handle division by zero and invalid values
