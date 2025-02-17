@@ -26,8 +26,8 @@ d_sym = 1
 
 # Symbolic expression for the standard cubic discriminant
 Delta_expr = (
-   ( (b_sym*c_sym)/(6*a_sym**2) - (b_sym**3)/(27*a_sym**3) - d_sym/(2*a_sym) )**2
-   + ( c_sym/(3*a_sym) - (b_sym**2)/(9*a_sym**2) )**3
+   ((b_sym*c_sym)/(6*a_sym**2) - (b_sym**3)/(27*a_sym**3) - d_sym/(2*a_sym))**2
+   + (c_sym/(3*a_sym) - (b_sym**2)/(9*a_sym**2))**3
 )
 
 # Turn that into a fast numeric function:
@@ -127,7 +127,6 @@ def compute_high_y_curve(betas, z_a, y):
     numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
     return numerator/denominator
 
-
 def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
     """
     Compute a custom curve given numerator and denominator expressions 
@@ -152,12 +151,11 @@ def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
         result = num_func(betas, z_a, y) / denom_func(betas, z_a, y)
     return result
 
-
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                             custom_num_expr=None, custom_denom_expr=None):
    if z_a <= 0 or y <= 0 or z_min >= z_max:
        st.error("Invalid input parameters.")
-       return None
+       return None, None
    
    betas = np.linspace(0, 1, beta_steps)
    
@@ -211,6 +209,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
        )
    )
    
+   custom_curve = None
    # Add custom expression if both numerator and denominator are provided
    if custom_num_expr and custom_denom_expr:
        custom_curve = compute_custom_expression(betas, z_a, y, custom_num_expr, custom_denom_expr)
@@ -231,7 +230,81 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
        yaxis_title="Value",
        hovermode="x unified",
    )
-   return fig
+   
+   # ----- NEW GRID: Compute Derivatives with Respect to β -----
+   # Use numpy.gradient assuming betas is evenly spaced.
+   dzmax_dbeta = np.gradient(z_maxs, betas)
+   dzmin_dbeta = np.gradient(z_mins, betas)
+   dlowy_dbeta = np.gradient(low_y_curve, betas)
+   dhighy_dbeta = np.gradient(high_y_curve, betas)
+   dcustom_dbeta = np.gradient(custom_curve, betas) if custom_curve is not None else None
+   
+   fig_deriv = go.Figure()
+   
+   fig_deriv.add_trace(
+       go.Scatter(
+           x=betas,
+           y=dzmax_dbeta,
+           mode="markers+lines",
+           name="d/dβ Upper z*(β)",
+           marker=dict(size=5, color='blue'),
+           line=dict(color='blue'),
+       )
+   )
+   
+   fig_deriv.add_trace(
+       go.Scatter(
+           x=betas,
+           y=dzmin_dbeta,
+           mode="markers+lines",
+           name="d/dβ Lower z*(β)",
+           marker=dict(size=5, color='lightblue'),
+           line=dict(color='lightblue'),
+       )
+   )
+   
+   fig_deriv.add_trace(
+       go.Scatter(
+           x=betas,
+           y=dlowy_dbeta,
+           mode="markers+lines",
+           name="d/dβ Low y Expression",
+           marker=dict(size=5, color='red'),
+           line=dict(color='red'),
+       )
+   )
+   
+   fig_deriv.add_trace(
+       go.Scatter(
+           x=betas,
+           y=dhighy_dbeta,
+           mode="markers+lines",
+           name="d/dβ High y Expression",
+           marker=dict(size=5, color='green'),
+           line=dict(color='green'),
+       )
+   )
+   
+   if dcustom_dbeta is not None:
+       fig_deriv.add_trace(
+           go.Scatter(
+               x=betas,
+               y=dcustom_dbeta,
+               mode="markers+lines",
+               name="d/dβ Custom Expression",
+               marker=dict(size=5, color='purple'),
+               line=dict(color='purple'),
+           )
+       )
+       
+   fig_deriv.update_layout(
+       title="Derivatives vs β of Each Curve",
+       xaxis_title="β",
+       yaxis_title="d(Value)/dβ",
+       hovermode="x unified",
+   )
+   
+   return fig, fig_deriv
 
 def compute_cubic_roots(z, beta, z_a, y):
    """
@@ -419,7 +492,8 @@ def generate_curves_plot(z, y, beta, a, s_range, n_points, n_guesses, tolerance)
     
     return fig, intersections
 
-# Streamlit UI
+# ------------------- Streamlit UI -------------------
+
 st.title("Cubic Root Analysis")
 
 tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections"])
@@ -448,11 +522,13 @@ with tab1:
         
     if st.button("Compute z vs. β Curves"):
         with col2:
-            fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1,
-                                          beta_steps, z_steps,
-                                          custom_num_expr, custom_denom_expr)
-            if fig is not None:
-                st.plotly_chart(fig, use_container_width=True)
+            fig_main, fig_deriv = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1,
+                                                         beta_steps, z_steps,
+                                                         custom_num_expr, custom_denom_expr)
+            if fig_main is not None and fig_deriv is not None:
+                st.plotly_chart(fig_main, use_container_width=True)
+                st.markdown("### Derivative of Each Curve vs. β")
+                st.plotly_chart(fig_deriv, use_container_width=True)
                 
                 st.markdown("### Additional Expressions")
                 st.markdown("""
