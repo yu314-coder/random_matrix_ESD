@@ -8,9 +8,26 @@ from scipy.optimize import fsolve
 st.set_page_config(
    page_title="Cubic Root Analysis",
    layout="wide",
-   initial_sidebar_state="collapsed"
+   initial_sidebar_state="expanded"  # Changed to expanded
 )
 
+# Move custom expression inputs to sidebar
+with st.sidebar:
+    st.header("Custom Expression Settings")
+    expression_type = st.radio(
+        "Select Expression Type",
+        ["Original Low y", "Alternative Low y"]
+    )
+    
+    if expression_type == "Original Low y":
+        default_num = "(y - 2)*((-1 + sqrt(y*beta*(z_a - 1)))/z_a) + y*beta*((z_a-1)/z_a) - 1/z_a - 1"
+        default_denom = "((-1 + sqrt(y*beta*(z_a - 1)))/z_a)**2 + ((-1 + sqrt(y*beta*(z_a - 1)))/z_a)"
+    else:
+        default_num = "1*z_a*y*beta*(z_a-1) - 2*z_a*(1 - y) - 2*z_a**2"
+        default_denom = "2+2*z_a"
+    
+    custom_num_expr = st.text_input("Numerator Expression", value=default_num)
+    custom_denom_expr = st.text_input("Denominator Expression", value=default_denom)
 #############################
 # 1) Define the discriminant
 #############################
@@ -73,7 +90,6 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
            roots_found.append(root_approx)
    
    return np.array(roots_found)
-
 @st.cache_data
 def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
    """
@@ -127,6 +143,23 @@ def compute_high_y_curve(betas, z_a, y):
     numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
     return numerator/denominator
 
+@st.cache_data
+def compute_z_difference_and_derivatives(z_a, y, z_min, z_max, beta_steps, z_steps):
+    """
+    Compute the difference between upper and lower z*(β) curves and their derivatives
+    """
+    betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
+    
+    # Compute difference
+    z_difference = z_maxs - z_mins
+    
+    # First derivatives
+    dz_diff_dbeta = np.gradient(z_difference, betas)
+    
+    # Second derivatives
+    d2z_diff_dbeta2 = np.gradient(dz_diff_dbeta, betas)
+    
+    return betas, z_difference, dz_diff_dbeta, d2z_diff_dbeta2
 def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
     """
     Compute a custom curve given numerator and denominator expressions 
@@ -186,8 +219,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
            line=dict(color='lightblue'),
        )
    )
-   
-   fig.add_trace(
+fig.add_trace(
        go.Scatter(
            x=betas,
            y=low_y_curve,
@@ -231,8 +263,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
        hovermode="x unified",
    )
    
-   # ----- NEW GRID: Compute Derivatives with Respect to β -----
-   # Use numpy.gradient assuming betas is evenly spaced.
+   # Compute Derivatives with Respect to β
    dzmax_dbeta = np.gradient(z_maxs, betas)
    dzmin_dbeta = np.gradient(z_mins, betas)
    dlowy_dbeta = np.gradient(low_y_curve, betas)
@@ -251,8 +282,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
            line=dict(color='blue'),
        )
    )
-   
-   fig_deriv.add_trace(
+fig_deriv.add_trace(
        go.Scatter(
            x=betas,
            y=dzmin_dbeta,
@@ -318,7 +348,6 @@ def compute_cubic_roots(z, beta, z_a, y):
    coeffs = [a, b, c, d]
    roots = np.roots(coeffs)
    return roots
-
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
    """Generate both Im(s) and Re(s) vs. z plots"""
    if z_a <= 0 or y <= 0 or z_min >= z_max:
@@ -377,126 +406,11 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
    )
    
    return fig_im, fig_re
-
-def curve1(s, z, y):
-   """First curve: z*s^2 + (z-y+1)*s + 1"""
-   return z*s**2 + (z-y+1)*s + 1
-
-def curve2(s, y, beta, a):
-   """Second curve: y*β*((a-1)*s)/(a*s+1)"""
-   return y*beta*((a-1)*s)/(a*s+1)
-
-def find_intersections(z, y, beta, a, s_range, n_guesses, tolerance):
-   """Find intersections between the two curves with improved accuracy"""
-   def equation(s):
-       return curve1(s, z, y) - curve2(s, y, beta, a)
-   
-   # Create a finer grid of initial guesses
-   s_guesses = np.linspace(s_range[0], s_range[1], n_guesses)
-   intersections = []
-   
-   # First pass: find all potential intersections
-   for s_guess in s_guesses:
-       try:
-           s_sol = fsolve(equation, s_guess, full_output=True, xtol=tolerance)
-           if s_sol[2] == 1:  # Check if convergence was achieved
-               s_val = s_sol[0][0]
-               if (s_range[0] <= s_val <= s_range[1] and 
-                   not any(abs(s_val - s_prev) < tolerance for s_prev in intersections)):
-                   if abs(equation(s_val)) < tolerance:
-                       intersections.append(s_val)
-       except:
-           continue
-   
-   # Sort intersections
-   intersections = np.sort(np.array(intersections))
-   
-   # Ensure even number of intersections by checking for missed ones
-   if len(intersections) % 2 != 0:
-       refined_intersections = []
-       for i in range(len(intersections)-1):
-           mid_point = (intersections[i] + intersections[i+1])/2
-           try:
-               s_sol = fsolve(equation, mid_point, full_output=True, xtol=tolerance)
-               if s_sol[2] == 1:
-                   s_val = s_sol[0][0]
-                   if (intersections[i] < s_val < intersections[i+1] and 
-                       abs(equation(s_val)) < tolerance):
-                       refined_intersections.append(s_val)
-           except:
-               continue
-       
-       intersections = np.sort(np.append(intersections, refined_intersections))
-   
-   return intersections
-
-def generate_curves_plot(z, y, beta, a, s_range, n_points, n_guesses, tolerance):
-    s = np.linspace(s_range[0], s_range[1], n_points)
-    
-    # Compute curves
-    y1 = curve1(s, z, y)
-    y2 = curve2(s, y, beta, a)
-    
-    # Find intersections with improved accuracy
-    intersections = find_intersections(z, y, beta, a, s_range, n_guesses, tolerance)
-    
-    fig = go.Figure()
-    
-    fig.add_trace(
-        go.Scatter(
-            x=s, y=y1,
-            mode='lines',
-            name='z*s² + (z-y+1)*s + 1',
-            line=dict(color='blue', width=2)
-        )
-    )
-    
-    fig.add_trace(
-        go.Scatter(
-            x=s, y=y2,
-            mode='lines',
-            name='y*β*((a-1)*s)/(a*s+1)',
-            line=dict(color='red', width=2)
-        )
-    )
-    
-    if len(intersections) > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=intersections,
-                y=curve1(intersections, z, y),
-                mode='markers',
-                name='Intersections',
-                marker=dict(
-                    size=12,
-                    color='green',
-                    symbol='x',
-                    line=dict(width=2)
-                )
-            )
-        )
-    
-    fig.update_layout(
-        title=f"Curve Intersection Analysis (y={y:.4f}, β={beta:.4f}, a={a:.4f})",
-        xaxis_title="s",
-        yaxis_title="Value",
-        hovermode="closest",
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
-        )
-    )
-    
-    return fig, intersections
-
 # ------------------- Streamlit UI -------------------
 
 st.title("Cubic Root Analysis")
 
-tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections"])
+tab1, tab2, tab3, tab4 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections", "z*(β) Difference Analysis"])
 
 with tab1:
     st.header("Find z Values where Cubic Roots Transition Between Real and Complex")
@@ -513,13 +427,6 @@ with tab1:
             beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50)
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000)
         
-        st.subheader("Custom Expression")
-        st.markdown("Enter a **numerator** and a **denominator** expression as functions of `z_a`, `beta`, and `y`.")
-        default_num = "(y - 2)*((-1 + sqrt(y*beta*(z_a - 1)))/z_a) + y*beta*((z_a-1)/z_a) - 1/z_a - 1"
-        default_denom = "((-1 + sqrt(y*beta*(z_a - 1)))/z_a)**2 + ((-1 + sqrt(y*beta*(z_a - 1)))/z_a)"
-        custom_num_expr = st.text_input("Numerator Expression", value=default_num)
-        custom_denom_expr = st.text_input("Denominator Expression", value=default_denom)
-        
     if st.button("Compute z vs. β Curves"):
         with col2:
             fig_main, fig_deriv = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1,
@@ -527,24 +434,8 @@ with tab1:
                                                          custom_num_expr, custom_denom_expr)
             if fig_main is not None and fig_deriv is not None:
                 st.plotly_chart(fig_main, use_container_width=True)
-                st.markdown("### Derivative of Each Curve vs. β")
                 st.plotly_chart(fig_deriv, use_container_width=True)
-                
-                st.markdown("### Additional Expressions")
-                st.markdown("""
-                **Low y Expression (Red):**
-                ```
-                ((y - 2)*(-1 + sqrt(y*β*(z_a-1)))/z_a + y*β*((z_a-1)/z_a) - 1/z_a - 1) / 
-                (((-1 + sqrt(y*β*(z_a-1)))/z_a)**2 + ((-1 + sqrt(y*β*(z_a-1)))/z_a))
-                ```
-                
-                **High y Expression (Green):**
-                ```
-                (- 4 z_a*(z_a-1)*y*β - 2z_a*y + 2z_a*(2z_a-1))/(1-2z_a)
-                ```
-                where z_a is the input parameter.
-                """)
-                
+
 with tab2:
     st.header("Plot Complex Roots vs. z")
     
@@ -567,40 +458,80 @@ with tab2:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
 
-with tab3:
-    st.header("Curve Intersection Analysis")
+with tab4:
+    st.header("z*(β) Difference Analysis")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        z = st.slider("z", min_value=-10.0, max_value=10000.0, value=1.0, step=0.1)
-        y_3 = st.slider("y", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="y_3")
-        beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_3")
-        a = st.slider("a", min_value=0.1, max_value=1000.0, value=1.0, step=0.1)
-        
-        st.subheader("s Range")
-        s_min = st.number_input("s_min", value=-5.0)
-        s_max = st.number_input("s_max", value=5.0)
+        z_a_4 = st.number_input("z_a", value=1.0, key="z_a_4")
+        y_4 = st.number_input("y", value=1.0, key="y_4")
+        z_min_4 = st.number_input("z_min", value=-10.0, key="z_min_4")
+        z_max_4 = st.number_input("z_max", value=10.0, key="z_max_4")
         
         with st.expander("Resolution Settings"):
-            s_points = st.slider("s grid points", min_value=1000, max_value=10000, value=5000, step=500)
-            intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100)
-            intersection_tolerance = st.select_slider(
-                "Intersection tolerance",
-                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14, 1e-16, 1e-18, 1e-20],
-                value=1e-10
-            )
-        
-    if st.button("Compute Intersections"):
+            beta_steps_4 = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps_4")
+            z_steps_4 = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps_4")
+    
+    if st.button("Compute Difference Analysis"):
         with col2:
-            s_range = (s_min, s_max)
-            fig, intersections = generate_curves_plot(z, y_3, beta_3, a, s_range, s_points, intersection_guesses, intersection_tolerance)
-            st.plotly_chart(fig, use_container_width=True)
+            betas, z_diff, dz_diff, d2z_diff = compute_z_difference_and_derivatives(
+                z_a_4, y_4, z_min_4, z_max_4, beta_steps_4, z_steps_4
+            )
             
-            if len(intersections) > 0:
-                st.subheader("Intersection Points")
-                for i, s_val in enumerate(intersections):
-                    y_val = curve1(s_val, z, y_3)
-                    st.write(f"Point {i+1}: s = {s_val:.6f}, y = {y_val:.6f}")
-            else:
-                st.write("No intersections found in the given range.")
+            # Plot difference
+            fig_diff = go.Figure()
+            fig_diff.add_trace(
+                go.Scatter(
+                    x=betas,
+                    y=z_diff,
+                    mode="lines",
+                    name="z*(β) Difference",
+                    line=dict(color='purple', width=2)
+                )
+            )
+            fig_diff.update_layout(
+                title="Difference between Upper and Lower z*(β)",
+                xaxis_title="β",
+                yaxis_title="z_max - z_min",
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_diff, use_container_width=True)
+            
+            # Plot first derivative
+            fig_first_deriv = go.Figure()
+            fig_first_deriv.add_trace(
+                go.Scatter(
+                    x=betas,
+                    y=dz_diff,
+                    mode="lines",
+                    name="First Derivative",
+                    line=dict(color='blue', width=2)
+                )
+            )
+            fig_first_deriv.update_layout(
+                title="First Derivative of z*(β) Difference",
+                xaxis_title="β",
+                yaxis_title="d(z_max - z_min)/dβ",
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_first_deriv, use_container_width=True)
+            
+            # Plot second derivative
+            fig_second_deriv = go.Figure()
+            fig_second_deriv.add_trace(
+                go.Scatter(
+                    x=betas,
+                    y=d2z_diff,
+                    mode="lines",
+                    name="Second Derivative",
+                    line=dict(color='green', width=2)
+                )
+            )
+            fig_second_deriv.update_layout(
+                title="Second Derivative of z*(β) Difference",
+                xaxis_title="β",
+                yaxis_title="d²(z_max - z_min)/dβ²",
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_second_deriv, use_container_width=True)
