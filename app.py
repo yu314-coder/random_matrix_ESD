@@ -8,7 +8,7 @@ from scipy.optimize import fsolve
 st.set_page_config(
    page_title="Cubic Root Analysis",
    layout="wide",
-   initial_sidebar_state="expanded"  # Changed to expanded
+   initial_sidebar_state="expanded"
 )
 
 # Move custom expression inputs to sidebar
@@ -28,6 +28,7 @@ with st.sidebar:
     
     custom_num_expr = st.text_input("Numerator Expression", value=default_num)
     custom_denom_expr = st.text_input("Denominator Expression", value=default_denom)
+
 #############################
 # 1) Define the discriminant
 #############################
@@ -37,7 +38,7 @@ z_sym, beta_sym, z_a_sym, y_sym = sp.symbols("z beta z_a y", real=True, positive
 
 # Define a, b, c, d in terms of z_sym, beta_sym, z_a_sym, y_sym
 a_sym = z_sym * z_a_sym
-b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym  # Fixed coefficient b
+b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym
 c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
 d_sym = 1
 
@@ -52,10 +53,6 @@ discriminant_func = sp.lambdify((z_sym, beta_sym, z_a_sym, y_sym), Delta_expr, "
 
 @st.cache_data
 def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
-   """
-   Numerically scan z in [z_min, z_max] looking for sign changes of
-   Delta(z) = 0. Returns all roots found via bisection.
-   """
    z_grid = np.linspace(z_min, z_max, steps)
    disc_vals = discriminant_func(z_grid, beta, z_a, y)
    
@@ -90,12 +87,9 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
            roots_found.append(root_approx)
    
    return np.array(roots_found)
+
 @st.cache_data
 def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
-   """
-   For each beta, find both the largest and smallest z where discriminant=0.
-   Returns (betas, z_min_values, z_max_values).
-   """
    betas = np.linspace(0, 1, beta_steps)
    z_min_values = []
    z_max_values = []
@@ -113,9 +107,6 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
 
 @st.cache_data
 def compute_low_y_curve(betas, z_a, y):
-   """
-   Compute the additional curve with proper handling of divide by zero cases
-   """
    betas = np.array(betas)
    with np.errstate(invalid='ignore', divide='ignore'):
        sqrt_term = y * betas * (z_a - 1)
@@ -124,16 +115,12 @@ def compute_low_y_curve(betas, z_a, y):
        term = (-1 + sqrt_term)/z_a
        numerator = (y - 2)*term + y * betas * ((z_a - 1)/z_a) - 1/z_a - 1
        denominator = term**2 + term
-       # Handle division by zero and invalid values
        mask = (denominator != 0) & ~np.isnan(denominator) & ~np.isnan(numerator)
        return np.where(mask, numerator/denominator, np.nan)
 
 @st.cache_data
 def compute_high_y_curve(betas, z_a, y):
-    """
-    Compute the expression: (-4a(a-1)yβ - 2ay + 2a(2a-1))/(1-2a)
-    """
-    a = z_a  # for clarity in the formula
+    a = z_a
     betas = np.array(betas)
     denominator = 1 - 2*a
     
@@ -145,28 +132,15 @@ def compute_high_y_curve(betas, z_a, y):
 
 @st.cache_data
 def compute_z_difference_and_derivatives(z_a, y, z_min, z_max, beta_steps, z_steps):
-    """
-    Compute the difference between upper and lower z*(β) curves and their derivatives
-    """
     betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
     
-    # Compute difference
     z_difference = z_maxs - z_mins
-    
-    # First derivatives
     dz_diff_dbeta = np.gradient(z_difference, betas)
-    
-    # Second derivatives
     d2z_diff_dbeta2 = np.gradient(dz_diff_dbeta, betas)
     
     return betas, z_difference, dz_diff_dbeta, d2z_diff_dbeta2
+
 def compute_custom_expression(betas, z_a, y, num_expr_str, denom_expr_str):
-    """
-    Compute a custom curve given numerator and denominator expressions 
-    as strings that can depend on z_a, beta, and y.
-    Allows 'a' as an alias for z_a.
-    """
-    # Define allowed symbols. Also allow 'a' as an alias for z_a.
     beta_sym, z_a_sym, y_sym, a_sym = sp.symbols("beta z_a y a", positive=True)
     local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "a": z_a_sym}
     
@@ -191,7 +165,6 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
        return None, None
    
    betas = np.linspace(0, 1, beta_steps)
-   
    betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
    low_y_curve = compute_low_y_curve(betas, z_a, y)
    high_y_curve = compute_high_y_curve(betas, z_a, y)
@@ -219,7 +192,8 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
            line=dict(color='lightblue'),
        )
    )
-fig.add_trace(
+   
+   fig.add_trace(
        go.Scatter(
            x=betas,
            y=low_y_curve,
@@ -242,7 +216,6 @@ fig.add_trace(
    )
    
    custom_curve = None
-   # Add custom expression if both numerator and denominator are provided
    if custom_num_expr and custom_denom_expr:
        custom_curve = compute_custom_expression(betas, z_a, y, custom_num_expr, custom_denom_expr)
        fig.add_trace(
@@ -263,7 +236,6 @@ fig.add_trace(
        hovermode="x unified",
    )
    
-   # Compute Derivatives with Respect to β
    dzmax_dbeta = np.gradient(z_maxs, betas)
    dzmin_dbeta = np.gradient(z_mins, betas)
    dlowy_dbeta = np.gradient(low_y_curve, betas)
@@ -282,7 +254,8 @@ fig.add_trace(
            line=dict(color='blue'),
        )
    )
-fig_deriv.add_trace(
+   
+   fig_deriv.add_trace(
        go.Scatter(
            x=betas,
            y=dzmin_dbeta,
@@ -337,9 +310,6 @@ fig_deriv.add_trace(
    return fig, fig_deriv
 
 def compute_cubic_roots(z, beta, z_a, y):
-   """
-   Compute the roots of the cubic equation for given parameters.
-   """
    a = z * z_a
    b = z * z_a + z + z_a - z_a*y
    c = z + z_a + 1 - y*(beta*z_a + 1 - beta)
@@ -348,8 +318,8 @@ def compute_cubic_roots(z, beta, z_a, y):
    coeffs = [a, b, c, d]
    roots = np.roots(coeffs)
    return roots
+
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
-   """Generate both Im(s) and Re(s) vs. z plots"""
    if z_a <= 0 or y <= 0 or z_min >= z_max:
        st.error("Invalid input parameters.")
        return None, None
@@ -367,7 +337,6 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
    ims = np.array(ims)
    res = np.array(res)
    
-   # Create Im(s) plot
    fig_im = go.Figure()
    for i in range(3):
        fig_im.add_trace(
@@ -386,7 +355,6 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
        hovermode="x unified",
    )
    
-   # Create Re(s) plot
    fig_re = go.Figure()
    for i in range(3):
        fig_re.add_trace(
@@ -406,11 +374,12 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
    )
    
    return fig_im, fig_re
+
 # ------------------- Streamlit UI -------------------
 
 st.title("Cubic Root Analysis")
 
-tab1, tab2, tab3, tab4 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections", "z*(β) Difference Analysis"])
+tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "z*(β) Difference Analysis"])
 
 with tab1:
     st.header("Find z Values where Cubic Roots Transition Between Real and Complex")
@@ -458,7 +427,7 @@ with tab2:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
 
-with tab4:
+with tab3:
     st.header("z*(β) Difference Analysis")
     
     col1, col2 = st.columns([1, 2])
