@@ -420,7 +420,7 @@ with tab1:
             - **Alternate Low Expression** (Orange): Alternative asymptotic expression
             - **Custom s Expression** (Purple): Result from user-defined s substituted into:
             """)
-            st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
+            st.latex(r"\frac{y\beta(textbox{z_a}-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
             
             # Display the current parameter values
             st.markdown("### Current Parameters")
