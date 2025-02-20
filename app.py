@@ -122,30 +122,28 @@ def compute_alternate_low_expr(betas, z_a, y):
     betas = np.array(betas)
     return (z_a * y * betas * (z_a - 1) - 2*z_a*(1 - y) - 2*z_a**2) / (2 + 2*z_a)
 
-def compute_custom_expression(betas, z_a, y, s, num_expr_str, denom_expr_str):
+def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr):
     """
-    Compute a custom curve from numerator and denominator expressions given as strings.
-    This version allows the expressions to depend on s (an extra parameter).
-    Allowed variables: z_a, beta, y, s.
-    Also, 'a' is accepted as an alias for z_a.
+    Compute a custom curve where s is defined by numerator/denominator expressions.
+    Allowed variables: z_a, beta, y
     """
-    beta_sym, z_a_sym, y_sym, s_sym, a_sym = sp.symbols("beta z_a y s a", positive=True)
-    local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "s": s_sym, "a": z_a_sym}
+    beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
+    local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym}
     try:
-        num_expr = sp.sympify(num_expr_str, locals=local_dict)
-        denom_expr = sp.sympify(denom_expr_str, locals=local_dict)
+        num_expr = sp.sympify(s_num_expr, locals=local_dict)
+        denom_expr = sp.sympify(s_denom_expr, locals=local_dict)
+        s_expr = num_expr / denom_expr
     except sp.SympifyError as e:
         st.error(f"Error parsing expressions: {e}")
         return np.full_like(betas, np.nan)
     
-    num_func = sp.lambdify((beta_sym, z_a_sym, y_sym, s_sym), num_expr, modules=["numpy"])
-    denom_func = sp.lambdify((beta_sym, z_a_sym, y_sym, s_sym), denom_expr, modules=["numpy"])
+    s_func = sp.lambdify((beta_sym, z_a_sym, y_sym), s_expr, modules=["numpy"])
     with np.errstate(divide='ignore', invalid='ignore'):
-        result = num_func(betas, z_a, y, s) / denom_func(betas, z_a, y, s)
+        result = s_func(betas, z_a, y)
     return result
 
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
-                            custom_num_expr=None, custom_denom_expr=None, s_custom=None):
+                          s_num_expr=None, s_denom_expr=None):
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
         return None
@@ -158,23 +156,23 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=betas, y=z_maxs, mode="markers+lines", name="Upper z*(β)",
-                             marker=dict(size=5, color='blue'), line=dict(color='blue')))
+                          marker=dict(size=5, color='blue'), line=dict(color='blue')))
     fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", name="Lower z*(β)",
-                             marker=dict(size=5, color='lightblue'), line=dict(color='lightblue')))
+                          marker=dict(size=5, color='lightblue'), line=dict(color='lightblue')))
     fig.add_trace(go.Scatter(x=betas, y=low_y_curve, mode="markers+lines", name="Low y Expression",
-                             marker=dict(size=5, color='red'), line=dict(color='red')))
+                          marker=dict(size=5, color='red'), line=dict(color='red')))
     fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", name="High y Expression",
-                             marker=dict(size=5, color='green'), line=dict(color='green')))
+                          marker=dict(size=5, color='green'), line=dict(color='green')))
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", name="Alternate Low Expression",
-                             marker=dict(size=5, color='orange'), line=dict(color='orange')))
+                          marker=dict(size=5, color='orange'), line=dict(color='orange')))
     
-    if custom_num_expr and custom_denom_expr and s_custom is not None:
-        custom_curve = compute_custom_expression(betas, z_a, y, s_custom, custom_num_expr, custom_denom_expr)
-        fig.add_trace(go.Scatter(x=betas, y=custom_curve, mode="markers+lines", name="Custom Expression",
-                                 marker=dict(size=5, color='purple'), line=dict(color='purple')))
+    if s_num_expr and s_denom_expr:
+        custom_curve = compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr)
+        fig.add_trace(go.Scatter(x=betas, y=custom_curve, mode="markers+lines", name="Custom s Expression",
+                              marker=dict(size=5, color='purple'), line=dict(color='purple')))
     
     fig.update_layout(title="Curves vs β: z*(β) Boundaries and Asymptotic Expressions",
-                      xaxis_title="β", yaxis_title="Value", hovermode="x unified")
+                     xaxis_title="β", yaxis_title="Value", hovermode="x unified")
     return fig
 
 def compute_cubic_roots(z, beta, z_a, y):
@@ -299,39 +297,18 @@ with tab1:
         with st.expander("Resolution Settings"):
             beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps")
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
-        st.subheader("Custom Expression")
-        st.markdown("Enter the **numerator** and **denominator** expressions (as functions of `z_a`, `beta`, `y`, and `s`) for the custom curve. Here, 'a' is an alias for `z_a`.")
-        st.markdown("The default expressions yield:")
-        st.latex(r"\frac{y\beta(z_a-1)s+(a\,s+1)((y-1)s-1)}{(a\,s+1)(s^2+s)}")
-        default_num = "y*beta*(z_a-1)*s + (a*s+1)*((y-1)*s-1)"
-        default_denom = "(a*s+1)*(s**2+s)"
-        custom_num_expr = st.text_input("Numerator Expression", value=default_num, key="custom_num")
-        custom_denom_expr = st.text_input("Denominator Expression", value=default_denom, key="custom_denom")
-        s_custom = st.number_input("Custom s value", value=1.0, step=0.1, key="s_custom")
+        
+        st.subheader("Custom s Expression")
+        st.markdown("Enter expressions as functions of `y`, `beta`, and `z_a`")
+        s_num = st.text_input("s numerator", value="y*beta*(z_a-1)", key="s_num")
+        s_denom = st.text_input("s denominator", value="z_a", key="s_denom")
+
     if st.button("Compute z vs. β Curves", key="tab1_button"):
         with col2:
             fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
-                                          custom_num_expr, custom_denom_expr, s_custom)
+                                        s_num, s_denom)
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
-            st.markdown("### Additional Expressions")
-            st.markdown("""
-**Low y Expression (Red):**
-```
-((y - 2)*((-1 + sqrt(y*beta*(z_a - 1)))/z_a) + y*beta*((z_a-1)/z_a) - 1/z_a - 1) / 
-(((-1 + sqrt(y*beta*(z_a - 1)))/z_a)**2 + ((-1 + sqrt(y*beta*(z_a - 1)))/z_a))
-```
-
-**High y Expression (Green):**
-```
-(-4*z_a*(z_a-1)*y*beta - 2*z_a*y + 2*z_a*(2*z_a-1))/(1-2*z_a)
-```
-
-**Alternate Low Expression (Orange):**
-```
-(z_a*y*beta*(z_a-1) - 2*z_a*(1-y) - 2*z_a**2)/(2+2*z_a)
-```
-            """)
 
 # ----- Tab 2: Im{s} vs. z -----
 with tab2:
