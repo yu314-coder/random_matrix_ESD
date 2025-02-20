@@ -296,7 +296,7 @@ with tab1:
         y_1 = st.number_input("y", value=1.0, key="y_1")
         z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
         z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
-        with st.expander("Resolution Settings", key="res1"):
+        with st.expander("Resolution Settings"):
             beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps")
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
         st.subheader("Custom Expression")
@@ -343,7 +343,7 @@ with tab2:
         z_a_2 = st.number_input("z_a", value=1.0, key="z_a_tab2")
         z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_tab2")
         z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
-        with st.expander("Resolution Settings", key="res2"):
+        with st.expander("Resolution Settings"):
             z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
     if st.button("Compute Complex Roots vs. z", key="tab2_button"):
         with col2:
@@ -364,7 +364,7 @@ with tab3:
         st.subheader("s Range")
         s_min = st.number_input("s_min", value=-5.0, key="s_min_tab3")
         s_max = st.number_input("s_max", value=5.0, key="s_max_tab3")
-        with st.expander("Resolution Settings", key="res3"):
+        with st.expander("Resolution Settings"):
             s_points = st.slider("s grid points", min_value=1000, max_value=10000, value=5000, step=500, key="s_points_tab3")
             intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100, key="intersect_guesses")
             intersection_tolerance = st.select_slider(
@@ -396,7 +396,7 @@ with tab4:
         y_diff = st.number_input("y", value=1.0, key="y_diff")
         z_min_diff = st.number_input("z_min", value=-10.0, key="z_min_diff")
         z_max_diff = st.number_input("z_max", value=10.0, key="z_max_diff")
-        with st.expander("Resolution Settings", key="res4"):
+        with st.expander("Resolution Settings"):
             beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps_diff")
             z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps_diff")
     if st.button("Compute Differentials", key="tab4_button"):
