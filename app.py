@@ -124,23 +124,33 @@ def compute_alternate_low_expr(betas, z_a, y):
 
 def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr):
     """
-    Compute a custom curve where s is defined by numerator/denominator expressions.
-    Allowed variables: z_a, beta, y
+    Compute custom curve by:
+    1. Computing s = s_num/s_denom
+    2. Inserting s into the final expression:
+    (y*beta*(z_a-1)*s + (a*s+1)*((y-1)*s-1))/((a*s+1)*(s^2 + s))
     """
     beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
     local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym}
+    
     try:
+        # First calculate s = num/denom
         num_expr = sp.sympify(s_num_expr, locals=local_dict)
         denom_expr = sp.sympify(s_denom_expr, locals=local_dict)
         s_expr = num_expr / denom_expr
+        
+        # Now substitute this s into the main expression
+        a = z_a_sym  # a is alias for z_a
+        numerator = y_sym*beta_sym*(z_a_sym-1)*s_expr + (a*s_expr+1)*((y_sym-1)*s_expr-1)
+        denominator = (a*s_expr+1)*(s_expr**2 + s_expr)
+        final_expr = numerator/denominator
+        
     except sp.SympifyError as e:
         st.error(f"Error parsing expressions: {e}")
         return np.full_like(betas, np.nan)
     
-    s_func = sp.lambdify((beta_sym, z_a_sym, y_sym), s_expr, modules=["numpy"])
+    final_func = sp.lambdify((beta_sym, z_a_sym, y_sym), final_expr, modules=["numpy"])
     with np.errstate(divide='ignore', invalid='ignore'):
-        result = s_func(betas, z_a, y)
-        # Ensure result is a numpy array
+        result = final_func(betas, z_a, y)
         if np.isscalar(result):
             result = np.full_like(betas, result)
     return result
@@ -302,16 +312,41 @@ with tab1:
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
         
         st.subheader("Custom s Expression")
-        st.markdown("Enter expressions as functions of `y`, `beta`, and `z_a`")
+        st.markdown("""Enter expressions for s = numerator/denominator 
+                    (using variables `y`, `beta`, `z_a`)""")
+        st.latex(r"\text{This s will be inserted into:}")
+        st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
         s_num = st.text_input("s numerator", value="y*beta*(z_a-1)", key="s_num")
         s_denom = st.text_input("s denominator", value="z_a", key="s_denom")
 
     if st.button("Compute z vs. β Curves", key="tab1_button"):
         with col2:
+            # Compute and plot the z vs. β curves
             fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
                                         s_num, s_denom)
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
+            
+            # Add explanation of the curves
+            st.markdown("### Curve Explanations")
+            st.markdown("""
+            - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
+            - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
+            - **Low y Expression** (Red): Asymptotic approximation for low y values
+            - **High y Expression** (Green): Asymptotic approximation for high y values
+            - **Alternate Low Expression** (Orange): Alternative asymptotic expression
+            - **Custom s Expression** (Purple): Result from user-defined s substituted into:
+            """)
+            st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
+            
+            # Display the current parameter values
+            st.markdown("### Current Parameters")
+            st.markdown(f"""
+            - z_a = {z_a_1}
+            - y = {y_1}
+            - z range: [{z_min_1}, {z_max_1}]
+            - s = ({s_num})/({s_denom})
+            """)
 
 # ----- Tab 2: Im{s} vs. z -----
 with tab2:
