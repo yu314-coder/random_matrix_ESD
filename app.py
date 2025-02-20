@@ -398,7 +398,7 @@ with tab1:
         st.markdown("""Enter expressions for s = numerator/denominator 
                     (using variables `y`, `beta`, `z_a`)""")
         st.latex(r"\text{This s will be inserted into:}")
-        st.latex(r"\frac{y\beta(\text{z_a}-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
+        st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
         s_num = st.text_input("s numerator", value="y*beta*(z_a-1)", key="s_num")
         s_denom = st.text_input("s denominator", value="z_a", key="s_denom")
 
@@ -420,7 +420,7 @@ with tab1:
             - **Alternate Low Expression** (Orange): Alternative asymptotic expression
             - **Custom s Expression** (Purple): Result from user-defined s substituted into:
             """)
-            st.latex(r"\frac{y\beta(\text{z_a}-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
+            st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
             
             # Display the current parameter values
             st.markdown("### Current Parameters")
