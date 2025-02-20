@@ -296,18 +296,18 @@ with tab1:
         y_1 = st.number_input("y", value=1.0, key="y_1")
         z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
         z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
-        with st.expander("Resolution Settings"):
-            beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50)
-            z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000)
+        with st.expander("Resolution Settings", key="res1"):
+            beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps")
+            z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
         st.subheader("Custom Expression")
         st.markdown("Enter the **numerator** and **denominator** expressions (as functions of `z_a`, `beta`, `y`, and `s`) for the custom curve. Here, 'a' is an alias for `z_a`.")
         st.markdown("The default expressions yield:")
         st.latex(r"\frac{y\beta(z_a-1)s+(a\,s+1)((y-1)s-1)}{(a\,s+1)(s^2+s)}")
         default_num = "y*beta*(z_a-1)*s + (a*s+1)*((y-1)*s-1)"
         default_denom = "(a*s+1)*(s**2+s)"
-        custom_num_expr = st.text_input("Numerator Expression", value=default_num)
-        custom_denom_expr = st.text_input("Denominator Expression", value=default_denom)
-        s_custom = st.number_input("Custom s value", value=1.0, step=0.1)
+        custom_num_expr = st.text_input("Numerator Expression", value=default_num, key="custom_num")
+        custom_denom_expr = st.text_input("Denominator Expression", value=default_denom, key="custom_denom")
+        s_custom = st.number_input("Custom s value", value=1.0, step=0.1, key="s_custom")
     if st.button("Compute z vs. β Curves", key="tab1_button"):
         with col2:
             fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
@@ -338,13 +338,13 @@ with tab2:
     st.header("Plot Complex Roots vs. z")
     col1, col2 = st.columns([1, 2])
     with col1:
-        beta = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0)
-        y_2 = st.number_input("y", value=1.0, key="y_2")
-        z_a_2 = st.number_input("z_a", value=1.0, key="z_a_2")
-        z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_2")
-        z_max_2 = st.number_input("z_max", value=10.0, key="z_max_2")
-        with st.expander("Resolution Settings"):
-            z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500)
+        beta = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2")
+        y_2 = st.number_input("y", value=1.0, key="y_tab2")
+        z_a_2 = st.number_input("z_a", value=1.0, key="z_a_tab2")
+        z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_tab2")
+        z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
+        with st.expander("Resolution Settings", key="res2"):
+            z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
     if st.button("Compute Complex Roots vs. z", key="tab2_button"):
         with col2:
             fig_im, fig_re = generate_root_plots(beta, y_2, z_a_2, z_min_2, z_max_2, z_points)
@@ -357,20 +357,21 @@ with tab3:
     st.header("Curve Intersection Analysis")
     col1, col2 = st.columns([1, 2])
     with col1:
-        z = st.slider("z", min_value=-10.0, max_value=10000.0, value=1.0, step=0.1)
-        y_3 = st.slider("y", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="y_3")
-        beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_3")
-        a = st.slider("a", min_value=0.1, max_value=1000.0, value=1.0, step=0.1)
+        z = st.slider("z", min_value=-10.0, max_value=10000.0, value=1.0, step=0.1, key="z_tab3")
+        y_3 = st.slider("y", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="y_tab3")
+        beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_tab3")
+        a = st.slider("a", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="a_tab3")
         st.subheader("s Range")
-        s_min = st.number_input("s_min", value=-5.0)
-        s_max = st.number_input("s_max", value=5.0)
-        with st.expander("Resolution Settings"):
-            s_points = st.slider("s grid points", min_value=1000, max_value=10000, value=5000, step=500)
-            intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100)
+        s_min = st.number_input("s_min", value=-5.0, key="s_min_tab3")
+        s_max = st.number_input("s_max", value=5.0, key="s_max_tab3")
+        with st.expander("Resolution Settings", key="res3"):
+            s_points = st.slider("s grid points", min_value=1000, max_value=10000, value=5000, step=500, key="s_points_tab3")
+            intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100, key="intersect_guesses")
             intersection_tolerance = st.select_slider(
                 "Intersection tolerance",
                 options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14, 1e-16, 1e-18, 1e-20],
-                value=1e-10
+                value=1e-10,
+                key="intersect_tol"
             )
     if st.button("Compute Intersections", key="tab3_button"):
         with col2:
@@ -395,9 +396,9 @@ with tab4:
         y_diff = st.number_input("y", value=1.0, key="y_diff")
         z_min_diff = st.number_input("z_min", value=-10.0, key="z_min_diff")
         z_max_diff = st.number_input("z_max", value=10.0, key="z_max_diff")
-        with st.expander("Resolution Settings"):
-            beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50)
-            z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000)
+        with st.expander("Resolution Settings", key="res4"):
+            beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps_diff")
+            z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps_diff")
     if st.button("Compute Differentials", key="tab4_button"):
         with col2:
             betas_diff, lower_vals, upper_vals = sweep_beta_and_find_z_bounds(z_a_diff, y_diff, z_min_diff, z_max_diff, beta_steps_diff, z_steps_diff)
