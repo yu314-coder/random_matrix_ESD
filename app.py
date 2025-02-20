@@ -140,6 +140,9 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr):
     s_func = sp.lambdify((beta_sym, z_a_sym, y_sym), s_expr, modules=["numpy"])
     with np.errstate(divide='ignore', invalid='ignore'):
         result = s_func(betas, z_a, y)
+        # Ensure result is a numpy array
+        if np.isscalar(result):
+            result = np.full_like(betas, result)
     return result
 
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
