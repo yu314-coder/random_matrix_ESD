@@ -11,6 +11,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+def add_sqrt_support(expr_str):
+    """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
+    return expr_str.replace('sqrt(', 'sp.sqrt(')
+
 #############################
 # 1) Define the discriminant
 #############################
@@ -84,7 +88,6 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
             z_min_values.append(np.min(roots))
             z_max_values.append(np.max(roots))
     return betas, np.array(z_min_values), np.array(z_max_values)
-
 @st.cache_data
 def compute_low_y_curve(betas, z_a, y):
     """
@@ -122,28 +125,69 @@ def compute_alternate_low_expr(betas, z_a, y):
     betas = np.array(betas)
     return (z_a * y * betas * (z_a - 1) - 2*z_a*(1 - y) - 2*z_a**2) / (2 + 2*z_a)
 
-def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr):
+@st.cache_data
+def compute_derivatives(curve, betas):
+    """Compute first and second derivatives of a curve"""
+    d1 = np.gradient(curve, betas)
+    d2 = np.gradient(d1, betas)
+    return d1, d2
+
+def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, alt_low_expr, custom_curve1=None, custom_curve2=None):
+    """Compute derivatives for all curves"""
+    derivatives = {}
+    
+    # Upper z*(β)
+    derivatives['upper'] = compute_derivatives(z_maxs, betas)
+    
+    # Lower z*(β)
+    derivatives['lower'] = compute_derivatives(z_mins, betas)
+    
+    # Low y Expression
+    derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
+    
+    # High y Expression
+    derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
+    
+    # Alternate Low Expression
+    derivatives['alt_low'] = compute_derivatives(alt_low_expr, betas)
+    
+    # Custom Expression 1 (if provided)
+    if custom_curve1 is not None:
+        derivatives['custom1'] = compute_derivatives(custom_curve1, betas)
+
+    # Custom Expression 2 (if provided)
+    if custom_curve2 is not None:
+        derivatives['custom2'] = compute_derivatives(custom_curve2, betas)
+        
+    return derivatives
+
+def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_based=True):
     """
-    Compute custom curve by:
-    1. Computing s = s_num/s_denom
-    2. Inserting s into the final expression:
-    (y*beta*(z_a-1)*s + (a*s+1)*((y-1)*s-1))/((a*s+1)*(s^2 + s))
+    Compute custom curve. If is_s_based=True, compute using s substitution.
+    Otherwise, compute direct z(β) expression.
     """
     beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
-    local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym}
+    local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "sp": sp}
     
     try:
-        # First calculate s = num/denom
+        # Add sqrt support
+        s_num_expr = add_sqrt_support(s_num_expr)
+        s_denom_expr = add_sqrt_support(s_denom_expr)
+        
         num_expr = sp.sympify(s_num_expr, locals=local_dict)
         denom_expr = sp.sympify(s_denom_expr, locals=local_dict)
-        s_expr = num_expr / denom_expr
         
-        # Now substitute this s into the main expression
-        a = z_a_sym  # a is alias for z_a
-        numerator = y_sym*beta_sym*(z_a_sym-1)*s_expr + (a*s_expr+1)*((y_sym-1)*s_expr-1)
-        denominator = (a*s_expr+1)*(s_expr**2 + s_expr)
-        final_expr = numerator/denominator
-        
+        if is_s_based:
+            # Compute s and substitute into main expression
+            s_expr = num_expr / denom_expr
+            a = z_a_sym
+            numerator = y_sym*beta_sym*(z_a_sym-1)*s_expr + (a*s_expr+1)*((y_sym-1)*s_expr-1)
+            denominator = (a*s_expr+1)*(s_expr**2 + s_expr)
+            final_expr = numerator/denominator
+        else:
+            # Direct z(β) expression
+            final_expr = num_expr / denom_expr
+            
     except sp.SympifyError as e:
         st.error(f"Error parsing expressions: {e}")
         return np.full_like(betas, np.nan)
@@ -154,9 +198,10 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr):
         if np.isscalar(result):
             result = np.full_like(betas, result)
     return result
-
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
-                          s_num_expr=None, s_denom_expr=None, show_derivatives=False):
+                          s_num_expr=None, s_denom_expr=None, 
+                          z_num_expr=None, z_denom_expr=None,
+                          show_derivatives=False):
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
         return None
@@ -167,15 +212,19 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     high_y_curve = compute_high_y_curve(betas, z_a, y)
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
     
-    custom_curve = None
+    # Compute both custom curves
+    custom_curve1 = None
+    custom_curve2 = None
     if s_num_expr and s_denom_expr:
-        custom_curve = compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr)
+        custom_curve1 = compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, True)
+    if z_num_expr and z_denom_expr:
+        custom_curve2 = compute_custom_expression(betas, z_a, y, z_num_expr, z_denom_expr, False)
 
-    # Compute derivatives
-    derivatives = compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, 
-                                        alt_low_expr, custom_curve)
+    # Compute derivatives if needed
+    if show_derivatives:
+        derivatives = compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, 
+                                           alt_low_expr, custom_curve1, custom_curve2)
 
-    # Create subplots: one for curves, one for first derivatives, one for second derivatives
     fig = go.Figure()
     
     # Original curves
@@ -190,40 +239,33 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
                             name="Alternate Low Expression", line=dict(color='orange')))
     
-    if custom_curve is not None:
-        fig.add_trace(go.Scatter(x=betas, y=custom_curve, mode="markers+lines", 
-                                name="Custom Expression", line=dict(color='purple')))
+    if custom_curve1 is not None:
+        fig.add_trace(go.Scatter(x=betas, y=custom_curve1, mode="markers+lines", 
+                                name="Custom 1 (s-based)", line=dict(color='purple')))
+    if custom_curve2 is not None:
+        fig.add_trace(go.Scatter(x=betas, y=custom_curve2, mode="markers+lines", 
+                                name="Custom 2 (direct)", line=dict(color='magenta')))
 
     if show_derivatives:
         # First derivatives
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['upper'][0], mode="lines", 
-                                name="Upper z*(β) d/dβ", line=dict(color='blue', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['lower'][0], mode="lines", 
-                                name="Lower z*(β) d/dβ", line=dict(color='lightblue', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['low_y'][0], mode="lines", 
-                                name="Low y d/dβ", line=dict(color='red', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['high_y'][0], mode="lines", 
-                                name="High y d/dβ", line=dict(color='green', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['alt_low'][0], mode="lines", 
-                                name="Alt Low d/dβ", line=dict(color='orange', dash='dash')))
-        if custom_curve is not None:
-            fig.add_trace(go.Scatter(x=betas, y=derivatives['custom'][0], mode="lines", 
-                                    name="Custom d/dβ", line=dict(color='purple', dash='dash')))
+        curve_info = [
+            ('upper', 'Upper z*(β)', 'blue'),
+            ('lower', 'Lower z*(β)', 'lightblue'),
+            ('low_y', 'Low y', 'red'),
+            ('high_y', 'High y', 'green'),
+            ('alt_low', 'Alt Low', 'orange')
+        ]
+        
+        if custom_curve1 is not None:
+            curve_info.append(('custom1', 'Custom 1', 'purple'))
+        if custom_curve2 is not None:
+            curve_info.append(('custom2', 'Custom 2', 'magenta'))
 
-        # Second derivatives
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['upper'][1], mode="lines", 
-                                name="Upper z*(β) d²/dβ²", line=dict(color='blue', dash='dot')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['lower'][1], mode="lines", 
-                                name="Lower z*(β) d²/dβ²", line=dict(color='lightblue', dash='dot')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['low_y'][1], mode="lines", 
-                                name="Low y d²/dβ²", line=dict(color='red', dash='dot')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['high_y'][1], mode="lines", 
-                                name="High y d²/dβ²", line=dict(color='green', dash='dot')))
-        fig.add_trace(go.Scatter(x=betas, y=derivatives['alt_low'][1], mode="lines", 
-                                name="Alt Low d²/dβ²", line=dict(color='orange', dash='dot')))
-        if custom_curve is not None:
-            fig.add_trace(go.Scatter(x=betas, y=derivatives['custom'][1], mode="lines", 
-                                    name="Custom d²/dβ²", line=dict(color='purple', dash='dot')))
+        for key, name, color in curve_info:
+            fig.add_trace(go.Scatter(x=betas, y=derivatives[key][0], mode="lines", 
+                                    name=f"{name} d/dβ", line=dict(color=color, dash='dash')))
+            fig.add_trace(go.Scatter(x=betas, y=derivatives[key][1], mode="lines", 
+                                    name=f"{name} d²/dβ²", line=dict(color=color, dash='dot')))
 
     fig.update_layout(
         title="Curves vs β: z*(β) Boundaries and Asymptotic Expressions",
@@ -239,8 +281,6 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         )
     )
     return fig
-
-
 def compute_cubic_roots(z, beta, z_a, y):
     """
     Compute the roots of the cubic equation for given parameters.
@@ -286,95 +326,6 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
     return fig_im, fig_re
 
-def curve1(s, z, y):
-    """First curve: z*s^2 + (z-y+1)*s + 1"""
-    return z*s**2 + (z-y+1)*s + 1
-
-def curve2(s, y, beta, a):
-    """Second curve: y*β*((a-1)*s)/(a*s+1)"""
-    return y*beta*((a-1)*s)/(a*s+1)
-
-def find_intersections(z, y, beta, a, s_range, n_guesses, tolerance):
-    """Find intersections between curve1 and curve2."""
-    def equation(s):
-        return curve1(s, z, y) - curve2(s, y, beta, a)
-    s_guesses = np.linspace(s_range[0], s_range[1], n_guesses)
-    intersections = []
-    for s_guess in s_guesses:
-        try:
-            s_sol = fsolve(equation, s_guess, full_output=True, xtol=tolerance)
-            if s_sol[2] == 1:
-                s_val = s_sol[0][0]
-                if (s_range[0] <= s_val <= s_range[1] and 
-                    not any(abs(s_val - s_prev) < tolerance for s_prev in intersections)):
-                    if abs(equation(s_val)) < tolerance:
-                        intersections.append(s_val)
-        except:
-            continue
-    intersections = np.sort(np.array(intersections))
-    if len(intersections) % 2 != 0:
-        refined_intersections = []
-        for i in range(len(intersections)-1):
-            mid_point = (intersections[i] + intersections[i+1]) / 2
-            try:
-                s_sol = fsolve(equation, mid_point, full_output=True, xtol=tolerance)
-                if s_sol[2] == 1:
-                    s_val = s_sol[0][0]
-                    if (intersections[i] < s_val < intersections[i+1] and 
-                        abs(equation(s_val)) < tolerance):
-                        refined_intersections.append(s_val)
-            except:
-                continue
-        intersections = np.sort(np.append(intersections, refined_intersections))
-    return intersections
-@st.cache_data
-def compute_derivatives(curve, betas):
-    """Compute first and second derivatives of a curve"""
-    d1 = np.gradient(curve, betas)
-    d2 = np.gradient(d1, betas)
-    return d1, d2
-
-def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, alt_low_expr, custom_curve=None):
-    """Compute derivatives for all curves"""
-    derivatives = {}
-    
-    # Upper z*(β)
-    derivatives['upper'] = compute_derivatives(z_maxs, betas)
-    
-    # Lower z*(β)
-    derivatives['lower'] = compute_derivatives(z_mins, betas)
-    
-    # Low y Expression
-    derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
-    
-    # High y Expression
-    derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
-    
-    # Alternate Low Expression
-    derivatives['alt_low'] = compute_derivatives(alt_low_expr, betas)
-    
-    # Custom Expression (if provided)
-    if custom_curve is not None:
-        derivatives['custom'] = compute_derivatives(custom_curve, betas)
-        
-    return derivatives
-def generate_curves_plot(z, y, beta, a, s_range, n_points, n_guesses, tolerance):
-    s = np.linspace(s_range[0], s_range[1], n_points)
-    y1 = curve1(s, z, y)
-    y2 = curve2(s, y, beta, a)
-    intersections = find_intersections(z, y, beta, a, s_range, n_guesses, tolerance)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=s, y=y1, mode='lines', name='z*s² + (z-y+1)*s + 1', line=dict(color='blue', width=2)))
-    fig.add_trace(go.Scatter(x=s, y=y2, mode='lines', name='y*β*((a-1)*s)/(a*s+1)', line=dict(color='red', width=2)))
-    if len(intersections) > 0:
-        fig.add_trace(go.Scatter(x=intersections, y=curve1(intersections, z, y),
-                                 mode='markers', name='Intersections',
-                                 marker=dict(size=12, color='green', symbol='x', line=dict(width=2))))
-    fig.update_layout(title=f"Curve Intersection Analysis (y={y:.4f}, β={beta:.4f}, a={a:.4f})",
-                      xaxis_title="s", yaxis_title="Value", hovermode="closest",
-                      showlegend=True, legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
-    return fig, intersections
-
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis")
 
@@ -394,42 +345,44 @@ with tab1:
             beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps")
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
         
-        st.subheader("Custom s Expression")
+        st.subheader("Custom Expression 1 (s-based)")
         st.markdown("""Enter expressions for s = numerator/denominator 
-                    (using variables `y`, `beta`, `z_a`)""")
+                    (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
         st.latex(r"\text{This s will be inserted into:}")
         st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
         s_num = st.text_input("s numerator", value="y*beta*(z_a-1)", key="s_num")
         s_denom = st.text_input("s denominator", value="z_a", key="s_denom")
 
+        st.subheader("Custom Expression 2 (direct z(β))")
+        st.markdown("""Enter direct expression for z(β) = numerator/denominator 
+                    (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
+        z_num = st.text_input("z(β) numerator", value="y*beta*(z_a-1)", key="z_num")
+        z_denom = st.text_input("z(β) denominator", value="1", key="z_denom")
+
+        show_derivatives = st.checkbox("Show derivatives", value=False)
+
     if st.button("Compute z vs. β Curves", key="tab1_button"):
         with col2:
-            # Compute and plot the z vs. β curves
             fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
-                                        s_num, s_denom)
+                                        s_num, s_denom, z_num, z_denom, show_derivatives)
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
-            
-            # Add explanation of the curves
-            st.markdown("### Curve Explanations")
-            st.markdown("""
-            - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
-            - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
-            - **Low y Expression** (Red): Asymptotic approximation for low y values
-            - **High y Expression** (Green): Asymptotic approximation for high y values
-            - **Alternate Low Expression** (Orange): Alternative asymptotic expression
-            - **Custom s Expression** (Purple): Result from user-defined s substituted into:
-            """)
-            st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
-            
-            # Display the current parameter values
-            st.markdown("### Current Parameters")
-            st.markdown(f"""
-            - z_a = {z_a_1}
-            - y = {y_1}
-            - z range: [{z_min_1}, {z_max_1}]
-            - s = ({s_num})/({s_denom})
-            """)
+                st.markdown("### Curve Explanations")
+                st.markdown("""
+                - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
+                - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
+                - **Low y Expression** (Red): Asymptotic approximation for low y values
+                - **High y Expression** (Green): Asymptotic approximation for high y values
+                - **Alternate Low Expression** (Orange): Alternative asymptotic expression
+                - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
+                - **Custom Expression 2** (Magenta): Direct z(β) expression
+                """)
+                if show_derivatives:
+                    st.markdown("""
+                    Derivatives are shown as:
+                    - Dashed lines: First derivatives (d/dβ)
+                    - Dotted lines: Second derivatives (d²/dβ²)
+                    """)
 
 # ----- Tab 2: Im{s} vs. z -----
 with tab2:
@@ -450,42 +403,8 @@ with tab2:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
 
-# ----- Tab 3: Curve Intersections -----
+# ----- Tab 3: Differential Analysis -----
 with tab3:
-    st.header("Curve Intersection Analysis")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        z = st.slider("z", min_value=-10.0, max_value=10000.0, value=1.0, step=0.1, key="z_tab3")
-        y_3 = st.slider("y", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="y_tab3")
-        beta_3 = st.slider("β", min_value=0.0, max_value=1.0, value=0.5, step=0.01, key="beta_tab3")
-        a = st.slider("a", min_value=0.1, max_value=1000.0, value=1.0, step=0.1, key="a_tab3")
-        st.subheader("s Range")
-        s_min = st.number_input("s_min", value=-5.0, key="s_min_tab3")
-        s_max = st.number_input("s_max", value=5.0, key="s_max_tab3")
-        with st.expander("Resolution Settings"):
-            s_points = st.slider("s grid points", min_value=1000, max_value=10000, value=5000, step=500, key="s_points_tab3")
-            intersection_guesses = st.slider("Intersection search points", min_value=200, max_value=2000, value=1000, step=100, key="intersect_guesses")
-            intersection_tolerance = st.select_slider(
-                "Intersection tolerance",
-                options=[1e-6, 1e-8, 1e-10, 1e-12, 1e-14, 1e-16, 1e-18, 1e-20],
-                value=1e-10,
-                key="intersect_tol"
-            )
-    if st.button("Compute Intersections", key="tab3_button"):
-        with col2:
-            s_range = (s_min, s_max)
-            fig, intersections = generate_curves_plot(z, y_3, beta_3, a, s_range, s_points, intersection_guesses, intersection_tolerance)
-            st.plotly_chart(fig, use_container_width=True)
-            if len(intersections) > 0:
-                st.subheader("Intersection Points")
-                for i, s_val in enumerate(intersections):
-                    y_val = curve1(s_val, z, y_3)
-                    st.write(f"Point {i+1}: s = {s_val:.6f}, y = {y_val:.6f}")
-            else:
-                st.write("No intersections found in the given range.")
-
-# ----- Tab 4: Differential Analysis -----
-with tab4:
     st.header("Differential Analysis vs. β")
     st.markdown("This page shows the difference between the Upper (blue) and Lower (lightblue) z*(β) curves, along with their first and second derivatives with respect to β.")
     col1, col2 = st.columns([1, 2])
@@ -497,16 +416,87 @@ with tab4:
         with st.expander("Resolution Settings"):
             beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps_diff")
             z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps_diff")
-    if st.button("Compute Differentials", key="tab4_button"):
+        
+        # Add options for curve selection
+        st.subheader("Curves to Analyze")
+        analyze_upper_lower = st.checkbox("Upper-Lower Difference", value=True)
+        analyze_low_y = st.checkbox("Low y Expression", value=False)
+        analyze_high_y = st.checkbox("High y Expression", value=False)
+        analyze_alt_low = st.checkbox("Alternate Low Expression", value=False)
+
+    if st.button("Compute Differentials", key="tab3_button"):
         with col2:
             betas_diff, lower_vals, upper_vals = sweep_beta_and_find_z_bounds(z_a_diff, y_diff, z_min_diff, z_max_diff, beta_steps_diff, z_steps_diff)
-            diff_curve = upper_vals - lower_vals
-            d1 = np.gradient(diff_curve, betas_diff)
-            d2 = np.gradient(d1, betas_diff)
             
+            # Create figure
             fig_diff = go.Figure()
-            fig_diff.add_trace(go.Scatter(x=betas_diff, y=diff_curve, mode="lines", name="Difference (Upper - Lower)", line=dict(color="magenta", width=2)))
-            fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", name="First Derivative", line=dict(color="brown", width=2)))
-            fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", name="Second Derivative", line=dict(color="black", width=2)))
-            fig_diff.update_layout(title="Differential Analysis vs. β", xaxis_title="β", yaxis_title="Value", hovermode="x unified")
+            
+            if analyze_upper_lower:
+                diff_curve = upper_vals - lower_vals
+                d1 = np.gradient(diff_curve, betas_diff)
+                d2 = np.gradient(d1, betas_diff)
+                
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=diff_curve, mode="lines", 
+                                name="Upper-Lower Difference", line=dict(color="magenta", width=2)))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
+                                name="Upper-Lower d/dβ", line=dict(color="magenta", dash='dash')))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
+                                name="Upper-Lower d²/dβ²", line=dict(color="magenta", dash='dot')))
+
+            if analyze_low_y:
+                low_y_curve = compute_low_y_curve(betas_diff, z_a_diff, y_diff)
+                d1 = np.gradient(low_y_curve, betas_diff)
+                d2 = np.gradient(d1, betas_diff)
+                
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=low_y_curve, mode="lines", 
+                                name="Low y", line=dict(color="red", width=2)))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
+                                name="Low y d/dβ", line=dict(color="red", dash='dash')))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
+                                name="Low y d²/dβ²", line=dict(color="red", dash='dot')))
+
+            if analyze_high_y:
+                high_y_curve = compute_high_y_curve(betas_diff, z_a_diff, y_diff)
+                d1 = np.gradient(high_y_curve, betas_diff)
+                d2 = np.gradient(d1, betas_diff)
+                
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=high_y_curve, mode="lines", 
+                                name="High y", line=dict(color="green", width=2)))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
+                                name="High y d/dβ", line=dict(color="green", dash='dash')))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
+                                name="High y d²/dβ²", line=dict(color="green", dash='dot')))
+
+            if analyze_alt_low:
+                alt_low_curve = compute_alternate_low_expr(betas_diff, z_a_diff, y_diff)
+                d1 = np.gradient(alt_low_curve, betas_diff)
+                d2 = np.gradient(d1, betas_diff)
+                
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=alt_low_curve, mode="lines", 
+                                name="Alt Low", line=dict(color="orange", width=2)))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
+                                name="Alt Low d/dβ", line=dict(color="orange", dash='dash')))
+                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
+                                name="Alt Low d²/dβ²", line=dict(color="orange", dash='dot')))
+
+            fig_diff.update_layout(
+                title="Differential Analysis vs. β",
+                xaxis_title="β",
+                yaxis_title="Value",
+                hovermode="x unified",
+                showlegend=True,
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01
+                )
+            )
             st.plotly_chart(fig_diff, use_container_width=True)
+            
+            st.markdown("""
+            ### Curve Types
+            - Solid lines: Original curves
+            - Dashed lines: First derivatives (d/dβ)
+            - Dotted lines: Second derivatives (d²/dβ²)
+            """)
