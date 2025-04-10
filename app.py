@@ -3,6 +3,7 @@ import sympy as sp
 import numpy as np
 import plotly.graph_objects as go
 from scipy.optimize import fsolve
+from scipy.stats import gaussian_kde
 
 # Configure Streamlit for Hugging Face Spaces
 st.set_page_config(
@@ -336,62 +337,70 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
     return fig_im, fig_re
 
-# New function for the eigenvalue distribution
+# New function for computing eigenvalue distribution directly
 @st.cache_data
-def compute_eigenvalue_distribution(z_a, y, beta, x_min, x_max, num_points, epsilon=1e-6):
+def compute_eigenvalue_distribution_direct(z_a, y, beta, n, num_samples=10):
     """
-    Compute the eigenvalue distribution (ESD) of B_n as n → ∞.
+    Compute the eigenvalue distribution by directly generating random matrices and computing eigenvalues.
     
-    B_n = (1/n)XX*
-    X is a p×n matrix with p/n → y as n → ∞
-    All elements of X are i.i.d. with distribution β·δ_a + (1-β)·δ_1
+    Parameters:
+    - z_a: The value 'a' in the distribution β·δ_a + (1-β)·δ_1
+    - y: The asymptotic ratio p/n
+    - beta: The mixing coefficient in the distribution
+    - n: Size of the matrix dimension n
+    - num_samples: Number of random matrices to generate for averaging
+    
+    Returns:
+    - all_eigenvalues: Array of all eigenvalues from all samples
     """
-    x_values = np.linspace(x_min, x_max, num_points)
-    density_values = np.zeros(num_points)
+    p = int(y * n)  # Calculate p based on aspect ratio y
+    all_eigenvalues = []
     
-    second_moment = beta * (z_a**2) + (1-beta) * 1
-    
-    for i, x in enumerate(x_values):
-        z = complex(x, epsilon)
+    for _ in range(num_samples):
+        # Generate random matrix X with elements following β·δ_a + (1-β)·δ_1
+        # This means each element is 'a' with probability β, and 1 with probability (1-β)
+        random_values = np.random.choice([z_a, 1.0], size=(p, n), p=[beta, 1-beta])
         
-        # Define the fixed-point equation for the Stieltjes transform
-        def fixed_point_equation(m_real_imag):
-            m_real, m_imag = m_real_imag
-            m = complex(m_real, m_imag)
-            
-            term1 = beta / (z_a - z - y * m * second_moment)
-            term2 = (1-beta) / (1 - z - y * m * second_moment)
-            
-            result = term1 + term2 - m
-            
-            return [result.real, result.imag]
+        # Compute B_n = (1/n)XX*
+        X = random_values
+        XX_star = X @ X.T
+        B_n = XX_star / n
         
-        # Solve the fixed-point equation
-        initial_guess = [-0.1, -0.1]  # Initial guess for the Stieltjes transform
-        m_solution = fsolve(fixed_point_equation, initial_guess)
-        m = complex(m_solution[0], m_solution[1])
-        
-        # Compute the density using the Stieltjes inversion formula
-        density_values[i] = -1/np.pi * m.imag
+        # Compute eigenvalues
+        eigenvalues = np.linalg.eigvalsh(B_n)
+        all_eigenvalues.extend(eigenvalues)
     
-    # Ensure density is non-negative
-    density_values = np.maximum(density_values, 0)
-    
-    return x_values, density_values
+    return np.array(all_eigenvalues)
 
-def generate_esd_plot(z_a, y, beta, x_min, x_max, num_points=1000):
+def generate_esd_plot_direct(z_a, y, beta, n, num_samples=10, bandwidth=0.1):
     """
-    Generate a plot of the eigenvalue distribution.
+    Generate a plot of the eigenvalue distribution using KDE.
     """
-    x_values, density_values = compute_eigenvalue_distribution(z_a, y, beta, x_min, x_max, num_points)
+    # Compute eigenvalues
+    eigenvalues = compute_eigenvalue_distribution_direct(z_a, y, beta, n, num_samples)
     
+    # Use KDE to estimate the density
+    kde = gaussian_kde(eigenvalues, bw_method=bandwidth)
+    
+    # Generate points for plotting
+    x_min = max(0, np.min(eigenvalues) - 0.5)
+    x_max = np.max(eigenvalues) + 0.5
+    x_values = np.linspace(x_min, x_max, 1000)
+    density_values = kde(x_values)
+    
+    # Create the plot
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=x_values, y=density_values, mode="lines", 
                             name="Eigenvalue Density", line=dict(color='blue', width=2)))
     
+    # Add individual eigenvalue points as a rug plot
+    fig.add_trace(go.Scatter(x=eigenvalues, y=np.zeros_like(eigenvalues), 
+                             mode="markers", name="Eigenvalues",
+                             marker=dict(color='red', size=3, opacity=0.5)))
+    
     fig.update_layout(
-        title=f"Eigenvalue Distribution (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-        xaxis_title="x",
+        title=f"Eigenvalue Distribution (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f}, n={n})",
+        xaxis_title="Eigenvalue",
         yaxis_title="Density",
         hovermode="x unified"
     )
@@ -470,9 +479,9 @@ with tab2:
         
         # Add new settings for eigenvalue distribution
         st.subheader("Eigenvalue Distribution Settings")
-        x_min = st.number_input("x_min", value=0.0, key="x_min_esd")
-        x_max = st.number_input("x_max", value=5.0, key="x_max_esd")
-        num_points = st.slider("Number of points", min_value=100, max_value=2000, value=1000, step=100, key="num_points_esd")
+        matrix_size = st.slider("Matrix size (n)", min_value=50, max_value=1000, value=200, step=50, key="matrix_size")
+        num_samples = st.slider("Number of matrix samples", min_value=1, max_value=50, value=10, step=1, key="num_samples")
+        bandwidth = st.slider("KDE bandwidth", min_value=0.01, max_value=0.5, value=0.1, step=0.01, key="kde_bandwidth")
     
     if st.button("Compute", key="tab2_button"):
         with col2:
@@ -481,18 +490,24 @@ with tab2:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
                 
-                # Add eigenvalue distribution plot
-                fig_esd = generate_esd_plot(z_a_2, y_2, beta, x_min, x_max, num_points)
-                st.plotly_chart(fig_esd, use_container_width=True)
+                # Add eigenvalue distribution plot with direct computation and KDE
+                with st.spinner("Computing eigenvalue distribution..."):
+                    fig_esd = generate_esd_plot_direct(z_a_2, y_2, beta, matrix_size, num_samples, bandwidth)
+                    st.plotly_chart(fig_esd, use_container_width=True)
                 
                 st.markdown("""
                 ### Eigenvalue Distribution Explanation
-                This plot shows the limiting eigenvalue distribution of B_n = (1/n)XX* as n → ∞, where:
-                - X is a p×n matrix with p/n → y
+                This plot shows the eigenvalue distribution of B_n = (1/n)XX* where:
+                - X is a p×n matrix with p/n = y
                 - Elements of X are i.i.d. following distribution β·δ_a + (1-β)·δ_1
                 - a = z_a, y = y, β = β
                 
-                The distribution is calculated using the Stieltjes transform approach.
+                The distribution is computed by:
+                1. Directly generating random matrices with the specified distribution
+                2. Computing the eigenvalues of B_n
+                3. Using Kernel Density Estimation (KDE) to visualize the distribution
+                
+                Red markers at the bottom indicate individual eigenvalues.
                 """)
 
 # ----- Tab 3: Differential Analysis -----
