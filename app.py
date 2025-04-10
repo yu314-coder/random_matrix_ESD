@@ -88,6 +88,7 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
             z_min_values.append(np.min(roots))
             z_max_values.append(np.max(roots))
     return betas, np.array(z_min_values), np.array(z_max_values)
+
 @st.cache_data
 def compute_low_y_curve(betas, z_a, y):
     """
@@ -143,7 +144,8 @@ def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, al
     derivatives['lower'] = compute_derivatives(z_mins, betas)
     
     # Low y Expression
-    derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
+    if low_y_curve is not None:
+        derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
     
     # High y Expression
     derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
@@ -198,6 +200,7 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
         if np.isscalar(result):
             result = np.full_like(betas, result)
     return result
+
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                           s_num_expr=None, s_denom_expr=None, 
                           z_num_expr=None, z_denom_expr=None,
@@ -208,7 +211,10 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
     betas = np.linspace(0, 1, beta_steps)
     betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
-    low_y_curve = compute_low_y_curve(betas, z_a, y)
+    
+    # Remove low_y_curve computation and display as requested
+    # low_y_curve = compute_low_y_curve(betas, z_a, y)  # Commented out
+    
     high_y_curve = compute_high_y_curve(betas, z_a, y)
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
     
@@ -222,7 +228,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
     # Compute derivatives if needed
     if show_derivatives:
-        derivatives = compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, 
+        derivatives = compute_all_derivatives(betas, z_mins, z_maxs, None, high_y_curve, 
                                            alt_low_expr, custom_curve1, custom_curve2)
 
     fig = go.Figure()
@@ -232,8 +238,11 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                             name="Upper z*(β)", line=dict(color='blue')))
     fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
                             name="Lower z*(β)", line=dict(color='lightblue')))
-    fig.add_trace(go.Scatter(x=betas, y=low_y_curve, mode="markers+lines", 
-                            name="Low y Expression", line=dict(color='red')))
+    
+    # Remove low_y_curve trace as requested
+    # fig.add_trace(go.Scatter(x=betas, y=low_y_curve, mode="markers+lines", 
+    #                        name="Low y Expression", line=dict(color='red')))
+    
     fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
                             name="High y Expression", line=dict(color='green')))
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
@@ -251,7 +260,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         curve_info = [
             ('upper', 'Upper z*(β)', 'blue'),
             ('lower', 'Lower z*(β)', 'lightblue'),
-            ('low_y', 'Low y', 'red'),
+            # ('low_y', 'Low y', 'red'),  # Removed as requested
             ('high_y', 'High y', 'green'),
             ('alt_low', 'Alt Low', 'orange')
         ]
@@ -281,6 +290,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         )
     )
     return fig
+
 def compute_cubic_roots(z, beta, z_a, y):
     """
     Compute the roots of the cubic equation for given parameters.
@@ -326,11 +336,73 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
     return fig_im, fig_re
 
+# New function for the eigenvalue distribution
+@st.cache_data
+def compute_eigenvalue_distribution(z_a, y, beta, x_min, x_max, num_points, epsilon=1e-6):
+    """
+    Compute the eigenvalue distribution (ESD) of B_n as n → ∞.
+    
+    B_n = (1/n)XX*
+    X is a p×n matrix with p/n → y as n → ∞
+    All elements of X are i.i.d. with distribution β·δ_a + (1-β)·δ_1
+    """
+    x_values = np.linspace(x_min, x_max, num_points)
+    density_values = np.zeros(num_points)
+    
+    second_moment = beta * (z_a**2) + (1-beta) * 1
+    
+    for i, x in enumerate(x_values):
+        z = complex(x, epsilon)
+        
+        # Define the fixed-point equation for the Stieltjes transform
+        def fixed_point_equation(m_real_imag):
+            m_real, m_imag = m_real_imag
+            m = complex(m_real, m_imag)
+            
+            term1 = beta / (z_a - z - y * m * second_moment)
+            term2 = (1-beta) / (1 - z - y * m * second_moment)
+            
+            result = term1 + term2 - m
+            
+            return [result.real, result.imag]
+        
+        # Solve the fixed-point equation
+        initial_guess = [-0.1, -0.1]  # Initial guess for the Stieltjes transform
+        m_solution = fsolve(fixed_point_equation, initial_guess)
+        m = complex(m_solution[0], m_solution[1])
+        
+        # Compute the density using the Stieltjes inversion formula
+        density_values[i] = -1/np.pi * m.imag
+    
+    # Ensure density is non-negative
+    density_values = np.maximum(density_values, 0)
+    
+    return x_values, density_values
+
+def generate_esd_plot(z_a, y, beta, x_min, x_max, num_points=1000):
+    """
+    Generate a plot of the eigenvalue distribution.
+    """
+    x_values, density_values = compute_eigenvalue_distribution(z_a, y, beta, x_min, x_max, num_points)
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x_values, y=density_values, mode="lines", 
+                            name="Eigenvalue Density", line=dict(color='blue', width=2)))
+    
+    fig.update_layout(
+        title=f"Eigenvalue Distribution (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+        xaxis_title="x",
+        yaxis_title="Density",
+        hovermode="x unified"
+    )
+    
+    return fig
+
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis")
 
-# Define four tabs
-tab1, tab2, tab3, tab4 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Curve Intersections", "Differential Analysis"])
+# Define three tabs (removed "Curve Intersections" tab)
+tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Differential Analysis"])
 
 # ----- Tab 1: z*(β) Curves -----
 with tab1:
@@ -371,7 +443,6 @@ with tab1:
                 st.markdown("""
                 - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
                 - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
-                - **Low y Expression** (Red): Asymptotic approximation for low y values
                 - **High y Expression** (Green): Asymptotic approximation for high y values
                 - **Alternate Low Expression** (Orange): Alternative asymptotic expression
                 - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
@@ -384,9 +455,9 @@ with tab1:
                     - Dotted lines: Second derivatives (d²/dβ²)
                     """)
 
-# ----- Tab 2: Im{s} vs. z -----
+# ----- Tab 2: Im{s} vs. z and Eigenvalue Distribution -----
 with tab2:
-    st.header("Plot Complex Roots vs. z")
+    st.header("Plot Complex Roots vs. z and Eigenvalue Distribution")
     col1, col2 = st.columns([1, 2])
     with col1:
         beta = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2")
@@ -396,12 +467,33 @@ with tab2:
         z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
         with st.expander("Resolution Settings"):
             z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
-    if st.button("Compute Complex Roots vs. z", key="tab2_button"):
+        
+        # Add new settings for eigenvalue distribution
+        st.subheader("Eigenvalue Distribution Settings")
+        x_min = st.number_input("x_min", value=0.0, key="x_min_esd")
+        x_max = st.number_input("x_max", value=5.0, key="x_max_esd")
+        num_points = st.slider("Number of points", min_value=100, max_value=2000, value=1000, step=100, key="num_points_esd")
+    
+    if st.button("Compute", key="tab2_button"):
         with col2:
             fig_im, fig_re = generate_root_plots(beta, y_2, z_a_2, z_min_2, z_max_2, z_points)
             if fig_im is not None and fig_re is not None:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
+                
+                # Add eigenvalue distribution plot
+                fig_esd = generate_esd_plot(z_a_2, y_2, beta, x_min, x_max, num_points)
+                st.plotly_chart(fig_esd, use_container_width=True)
+                
+                st.markdown("""
+                ### Eigenvalue Distribution Explanation
+                This plot shows the limiting eigenvalue distribution of B_n = (1/n)XX* as n → ∞, where:
+                - X is a p×n matrix with p/n → y
+                - Elements of X are i.i.d. following distribution β·δ_a + (1-β)·δ_1
+                - a = z_a, y = y, β = β
+                
+                The distribution is calculated using the Stieltjes transform approach.
+                """)
 
 # ----- Tab 3: Differential Analysis -----
 with tab3:
@@ -420,7 +512,6 @@ with tab3:
         # Add options for curve selection
         st.subheader("Curves to Analyze")
         analyze_upper_lower = st.checkbox("Upper-Lower Difference", value=True)
-        analyze_low_y = st.checkbox("Low y Expression", value=False)
         analyze_high_y = st.checkbox("High y Expression", value=False)
         analyze_alt_low = st.checkbox("Alternate Low Expression", value=False)
 
@@ -442,18 +533,6 @@ with tab3:
                                 name="Upper-Lower d/dβ", line=dict(color="magenta", dash='dash')))
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
                                 name="Upper-Lower d²/dβ²", line=dict(color="magenta", dash='dot')))
-
-            if analyze_low_y:
-                low_y_curve = compute_low_y_curve(betas_diff, z_a_diff, y_diff)
-                d1 = np.gradient(low_y_curve, betas_diff)
-                d2 = np.gradient(d1, betas_diff)
-                
-                fig_diff.add_trace(go.Scatter(x=betas_diff, y=low_y_curve, mode="lines", 
-                                name="Low y", line=dict(color="red", width=2)))
-                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
-                                name="Low y d/dβ", line=dict(color="red", dash='dash')))
-                fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
-                                name="Low y d²/dβ²", line=dict(color="red", dash='dot')))
 
             if analyze_high_y:
                 high_y_curve = compute_high_y_curve(betas_diff, z_a_diff, y_diff)
