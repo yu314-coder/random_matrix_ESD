@@ -90,21 +90,7 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
             z_max_values.append(np.max(roots))
     return betas, np.array(z_min_values), np.array(z_max_values)
 
-@st.cache_data
-def compute_low_y_curve(betas, z_a, y):
-    """
-    Compute the "Low y Expression" curve.
-    """
-    betas = np.array(betas)
-    with np.errstate(invalid='ignore', divide='ignore'):
-        sqrt_term = y * betas * (z_a - 1)
-        sqrt_term = np.where(sqrt_term < 0, np.nan, np.sqrt(sqrt_term))
-        term = (-1 + sqrt_term) / z_a
-        numerator = (y - 2)*term + y * betas * ((z_a - 1)/z_a) - 1/z_a - 1
-        denominator = term**2 + term
-        mask = (denominator != 0) & ~np.isnan(denominator) & ~np.isnan(numerator)
-        result = np.where(mask, numerator/denominator, np.nan)
-    return result
+# Removed the compute_low_y_curve function
 
 @st.cache_data
 def compute_high_y_curve(betas, z_a, y):
@@ -144,7 +130,7 @@ def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, al
     # Lower z*(β)
     derivatives['lower'] = compute_derivatives(z_mins, betas)
     
-    # Low y Expression
+    # Low y Expression (only if provided)
     if low_y_curve is not None:
         derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
     
@@ -212,10 +198,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
     betas = np.linspace(0, 1, beta_steps)
     betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
-    
-    # Remove low_y_curve computation and display as requested
-    # low_y_curve = compute_low_y_curve(betas, z_a, y)  # Commented out
-    
+    # Removed low_y_curve computation
     high_y_curve = compute_high_y_curve(betas, z_a, y)
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
     
@@ -239,11 +222,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                             name="Upper z*(β)", line=dict(color='blue')))
     fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
                             name="Lower z*(β)", line=dict(color='lightblue')))
-    
-    # Remove low_y_curve trace as requested
-    # fig.add_trace(go.Scatter(x=betas, y=low_y_curve, mode="markers+lines", 
-    #                        name="Low y Expression", line=dict(color='red')))
-    
+    # Removed the Low y Expression trace
     fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
                             name="High y Expression", line=dict(color='green')))
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
@@ -261,7 +240,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         curve_info = [
             ('upper', 'Upper z*(β)', 'blue'),
             ('lower', 'Lower z*(β)', 'lightblue'),
-            # ('low_y', 'Low y', 'red'),  # Removed as requested
+            # Removed low_y curve
             ('high_y', 'High y', 'green'),
             ('alt_low', 'Alt Low', 'orange')
         ]
@@ -337,72 +316,68 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
     return fig_im, fig_re
 
-# New function for computing eigenvalue distribution directly
 @st.cache_data
-def compute_eigenvalue_distribution_direct(z_a, y, beta, n, num_samples=10):
+def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
     """
-    Compute the eigenvalue distribution by directly generating random matrices and computing eigenvalues.
+    Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
     
     Parameters:
-    - z_a: The value 'a' in the distribution β·δ_a + (1-β)·δ_1
-    - y: The asymptotic ratio p/n
-    - beta: The mixing coefficient in the distribution
-    - n: Size of the matrix dimension n
-    - num_samples: Number of random matrices to generate for averaging
-    
-    Returns:
-    - all_eigenvalues: Array of all eigenvalues from all samples
+    -----------
+    beta : float
+        Fraction of components equal to z_a
+    y : float
+        Aspect ratio p/n
+    z_a : float
+        Value for the delta mass at z_a
+    n : int
+        Number of samples
+    seed : int
+        Random seed for reproducibility
     """
-    p = int(y * n)  # Calculate p based on aspect ratio y
-    all_eigenvalues = []
+    # Set random seed
+    np.random.seed(seed)
     
-    for _ in range(num_samples):
-        # Generate random matrix X with elements following β·δ_a + (1-β)·δ_1
-        # This means each element is 'a' with probability β, and 1 with probability (1-β)
-        random_values = np.random.choice([z_a, 1.0], size=(p, n), p=[beta, 1-beta])
-        
-        # Compute B_n = (1/n)XX*
-        X = random_values
-        XX_star = X @ X.T
-        B_n = XX_star / n
-        
-        # Compute eigenvalues
-        eigenvalues = np.linalg.eigvalsh(B_n)
-        all_eigenvalues.extend(eigenvalues)
+    # Compute dimension p based on aspect ratio y
+    p = int(y * n)
     
-    return np.array(all_eigenvalues)
-
-def generate_esd_plot_direct(z_a, y, beta, n, num_samples=10, bandwidth=0.1):
-    """
-    Generate a plot of the eigenvalue distribution using KDE.
-    """
-    # Compute eigenvalues
-    eigenvalues = compute_eigenvalue_distribution_direct(z_a, y, beta, n, num_samples)
+    # Constructing T_n (Population / Shape Matrix)
+    T_diag = np.where(np.random.rand(p) < beta, z_a, 1.0)
+    T_n = np.diag(T_diag)
     
-    # Use KDE to estimate the density
-    kde = gaussian_kde(eigenvalues, bw_method=bandwidth)
+    # Generate the data matrix X with i.i.d. standard normal entries
+    X = np.random.randn(p, n)
     
-    # Generate points for plotting
-    x_min = max(0, np.min(eigenvalues) - 0.5)
-    x_max = np.max(eigenvalues) + 0.5
-    x_values = np.linspace(x_min, x_max, 1000)
-    density_values = kde(x_values)
+    # Compute the sample covariance matrix S_n = (1/n) * XX^T
+    S_n = (1 / n) * (X @ X.T)
     
-    # Create the plot
+    # Compute B_n = S_n T_n
+    B_n = S_n @ T_n
+    
+    # Compute eigenvalues of B_n
+    eigenvalues = np.linalg.eigvalsh(B_n)
+    
+    # Use KDE to compute a smooth density estimate
+    kde = gaussian_kde(eigenvalues)
+    x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
+    kde_vals = kde(x_vals)
+    
+    # Create figure
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x_values, y=density_values, mode="lines", 
-                            name="Eigenvalue Density", line=dict(color='blue', width=2)))
     
-    # Add individual eigenvalue points as a rug plot
-    fig.add_trace(go.Scatter(x=eigenvalues, y=np.zeros_like(eigenvalues), 
-                             mode="markers", name="Eigenvalues",
-                             marker=dict(color='red', size=3, opacity=0.5)))
+    # Add histogram trace
+    fig.add_trace(go.Histogram(x=eigenvalues, histnorm='probability density', 
+                              name="Histogram", marker=dict(color='blue', opacity=0.6)))
+    
+    # Add KDE trace
+    fig.add_trace(go.Scatter(x=x_vals, y=kde_vals, mode="lines", 
+                            name="KDE", line=dict(color='red', width=2)))
     
     fig.update_layout(
-        title=f"Eigenvalue Distribution (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f}, n={n})",
+        title=f"Eigenvalue Distribution for B_n = S_n T_n (y={y:.1f}, β={beta:.2f}, a={z_a:.1f})",
         xaxis_title="Eigenvalue",
         yaxis_title="Density",
-        hovermode="x unified"
+        hovermode="closest",
+        showlegend=True
     )
     
     return fig
@@ -410,7 +385,7 @@ def generate_esd_plot_direct(z_a, y, beta, n, num_samples=10, bandwidth=0.1):
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis")
 
-# Define three tabs (removed "Curve Intersections" tab)
+# Define three tabs (removed "Curve Intersections")
 tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Differential Analysis"])
 
 # ----- Tab 1: z*(β) Curves -----
@@ -464,9 +439,9 @@ with tab1:
                     - Dotted lines: Second derivatives (d²/dβ²)
                     """)
 
-# ----- Tab 2: Im{s} vs. z and Eigenvalue Distribution -----
+# ----- Tab 2: Im{s} vs. z -----
 with tab2:
-    st.header("Plot Complex Roots vs. z and Eigenvalue Distribution")
+    st.header("Plot Complex Roots vs. z")
     col1, col2 = st.columns([1, 2])
     with col1:
         beta = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2")
@@ -476,39 +451,35 @@ with tab2:
         z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
         with st.expander("Resolution Settings"):
             z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
-        
-        # Add new settings for eigenvalue distribution
-        st.subheader("Eigenvalue Distribution Settings")
-        matrix_size = st.slider("Matrix size (n)", min_value=50, max_value=1000, value=200, step=50, key="matrix_size")
-        num_samples = st.slider("Number of matrix samples", min_value=1, max_value=50, value=10, step=1, key="num_samples")
-        bandwidth = st.slider("KDE bandwidth", min_value=0.01, max_value=0.5, value=0.1, step=0.01, key="kde_bandwidth")
-    
-    if st.button("Compute", key="tab2_button"):
+    if st.button("Compute Complex Roots vs. z", key="tab2_button"):
         with col2:
             fig_im, fig_re = generate_root_plots(beta, y_2, z_a_2, z_min_2, z_max_2, z_points)
             if fig_im is not None and fig_re is not None:
                 st.plotly_chart(fig_im, use_container_width=True)
                 st.plotly_chart(fig_re, use_container_width=True)
-                
-                # Add eigenvalue distribution plot with direct computation and KDE
-                with st.spinner("Computing eigenvalue distribution..."):
-                    fig_esd = generate_esd_plot_direct(z_a_2, y_2, beta, matrix_size, num_samples, bandwidth)
-                    st.plotly_chart(fig_esd, use_container_width=True)
-                
-                st.markdown("""
-                ### Eigenvalue Distribution Explanation
-                This plot shows the eigenvalue distribution of B_n = (1/n)XX* where:
-                - X is a p×n matrix with p/n = y
-                - Elements of X are i.i.d. following distribution β·δ_a + (1-β)·δ_1
-                - a = z_a, y = y, β = β
-                
-                The distribution is computed by:
-                1. Directly generating random matrices with the specified distribution
-                2. Computing the eigenvalues of B_n
-                3. Using Kernel Density Estimation (KDE) to visualize the distribution
-                
-                Red markers at the bottom indicate individual eigenvalues.
-                """)
+    
+    # Add a separator
+    st.markdown("---")
+    
+    # Add eigenvalue distribution section
+    st.header("Eigenvalue Distribution for B_n = S_n T_n")
+    st.markdown("""
+    This simulation generates the eigenvalue distribution of B_n as n→∞, where:
+    - B_n = (1/n)XX* with X being a p×n matrix
+    - p/n → y as n→∞
+    - All elements of X are i.i.d with distribution β·δ(z_a) + (1-β)·δ(1)
+    """)
+    
+    col_eigen1, col_eigen2 = st.columns([1, 2])
+    with col_eigen1:
+        n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
+        sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
+
+    if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
+        with col_eigen2:
+            fig_eigen = generate_eigenvalue_distribution(beta, y_2, z_a_2, n=n_samples, seed=sim_seed)
+            if fig_eigen is not None:
+                st.plotly_chart(fig_eigen, use_container_width=True)
 
 # ----- Tab 3: Differential Analysis -----
 with tab3:
