@@ -406,14 +406,14 @@ with tab1:
                     (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
         st.latex(r"\text{This s will be inserted into:}")
         st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
-        s_num = st.text_input("s numerator", value="y*beta*(z_a-1)", key="s_num")
-        s_denom = st.text_input("s denominator", value="z_a", key="s_denom")
+        s_num = st.text_input("s numerator", value="", key="s_num")
+        s_denom = st.text_input("s denominator", value="", key="s_denom")
 
         st.subheader("Custom Expression 2 (direct z(β))")
         st.markdown("""Enter direct expression for z(β) = numerator/denominator 
                     (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
-        z_num = st.text_input("z(β) numerator", value="y*beta*(z_a-1)", key="z_num")
-        z_denom = st.text_input("z(β) denominator", value="1", key="z_denom")
+        z_num = st.text_input("z(β) numerator", value="", key="z_num")
+        z_denom = st.text_input("z(β) denominator", value="", key="z_denom")
 
         show_derivatives = st.checkbox("Show derivatives", value=False)
 
