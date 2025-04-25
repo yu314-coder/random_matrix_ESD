@@ -428,7 +428,7 @@ with tab1:
                 - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
                 - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
                 - **High y Expression** (Green): Asymptotic approximation for high y values
-                - **Alternate Low Expression** (Orange): Alternative asymptotic expression
+                - **Low Expression** (Orange): Alternative asymptotic expression
                 - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
                 - **Custom Expression 2** (Magenta): Direct z(β) expression
                 """)
