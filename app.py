@@ -221,12 +221,12 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     fig.add_trace(go.Scatter(x=betas, y=z_maxs, mode="markers+lines", 
                             name="Upper z*(β)", line=dict(color='blue')))
     fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
-                            name="Lower z*(β)", line=dict(color='lightblue')))
+                            name="Lower z*(β)", line=dict(color='blue')))
     # Removed the Low y Expression trace
     fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
                             name="High y Expression", line=dict(color='green')))
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
-                            name="Low Expression", line=dict(color='orange')))
+                            name="Low Expression", line=dict(color='green')))
     
     if custom_curve1 is not None:
         fig.add_trace(go.Scatter(x=betas, y=custom_curve1, mode="markers+lines", 
