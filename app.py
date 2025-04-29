@@ -582,9 +582,9 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
                 method_used = "Eigenvalue Method" if use_eigenvalue_method else "Discriminant Method"
                 st.markdown(f"### Curve Explanations (using {method_used})")
-                st.markdown(f"""
-                - **Upper z*(β)** (Blue): Maximum z value where roots transition between real and complex ({method_used})
-                - **Lower z*(β)** (Light Blue): Minimum z value where roots transition between real and complex ({method_used})
+                st.markdown("""
+                - **Upper z*(β)** (Blue): Maximum z value where roots transition between real and complex
+                - **Lower z*(β)** (Light Blue): Minimum z value where roots transition between real and complex
                 - **High y Expression** (Green): Asymptotic approximation for high y values
                 - **Low Expression** (Orange): Alternative asymptotic expression
                 - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
