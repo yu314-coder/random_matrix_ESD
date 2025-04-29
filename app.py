@@ -90,8 +90,6 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
             z_max_values.append(np.max(roots))
     return betas, np.array(z_min_values), np.array(z_max_values)
 
-# Removed the compute_low_y_curve function
-
 @st.cache_data
 def compute_high_y_curve(betas, z_a, y):
     """
@@ -112,6 +110,65 @@ def compute_alternate_low_expr(betas, z_a, y):
     """
     betas = np.array(betas)
     return (z_a * y * betas * (z_a - 1) - 2*z_a*(1 - y) - 2*z_a**2) / (2 + 2*z_a)
+
+@st.cache_data
+def compute_max_k_expression(betas, z_a, y, k_samples=1000):
+    """
+    Compute max_{k ∈ (0,∞)} (y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)) / ((a*k+1)*(k^2+k))
+    """
+    a = z_a
+    # Sample k values on a logarithmic scale
+    k_values = np.logspace(-3, 3, k_samples)
+    
+    max_vals = np.zeros_like(betas)
+    for i, beta in enumerate(betas):
+        values = np.zeros_like(k_values)
+        for j, k in enumerate(k_values):
+            numerator = y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)
+            denominator = (a*k+1)*(k**2+k)
+            if abs(denominator) < 1e-10:
+                values[j] = np.nan
+            else:
+                values[j] = numerator/denominator
+        
+        valid_indices = ~np.isnan(values)
+        if np.any(valid_indices):
+            max_vals[i] = np.max(values[valid_indices])
+        else:
+            max_vals[i] = np.nan
+            
+    return max_vals
+
+@st.cache_data
+def compute_min_t_expression(betas, z_a, y, t_samples=1000):
+    """
+    Compute min_{t ∈ (-1/a, 0)} (y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)) / ((a*t+1)*(t^2+t))
+    """
+    a = z_a
+    if a <= 0:
+        return np.full_like(betas, np.nan)
+        
+    lower_bound = -1/a + 1e-10  # Avoid division by zero
+    t_values = np.linspace(lower_bound, -1e-10, t_samples)
+    
+    min_vals = np.zeros_like(betas)
+    for i, beta in enumerate(betas):
+        values = np.zeros_like(t_values)
+        for j, t in enumerate(t_values):
+            numerator = y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)
+            denominator = (a*t+1)*(t**2+t)
+            if abs(denominator) < 1e-10:
+                values[j] = np.nan
+            else:
+                values[j] = numerator/denominator
+        
+        valid_indices = ~np.isnan(values)
+        if np.any(valid_indices):
+            min_vals[i] = np.min(values[valid_indices])
+        else:
+            min_vals[i] = np.nan
+            
+    return min_vals
 
 @st.cache_data
 def compute_derivatives(curve, betas):
@@ -202,6 +259,10 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     high_y_curve = compute_high_y_curve(betas, z_a, y)
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
     
+    # Compute the max/min expressions
+    max_k_curve = compute_max_k_expression(betas, z_a, y)
+    min_t_curve = compute_min_t_expression(betas, z_a, y)
+    
     # Compute both custom curves
     custom_curve1 = None
     custom_curve2 = None
@@ -214,6 +275,9 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     if show_derivatives:
         derivatives = compute_all_derivatives(betas, z_mins, z_maxs, None, high_y_curve, 
                                            alt_low_expr, custom_curve1, custom_curve2)
+        # Calculate derivatives for max_k and min_t curves
+        max_k_derivatives = compute_derivatives(max_k_curve, betas)
+        min_t_derivatives = compute_derivatives(min_t_curve, betas)
 
     fig = go.Figure()
     
@@ -227,6 +291,12 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                             name="High y Expression", line=dict(color='green')))
     fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
                             name="Low Expression", line=dict(color='green')))
+    
+    # Add the new max/min curves
+    fig.add_trace(go.Scatter(x=betas, y=max_k_curve, mode="lines", 
+                            name="Max k Expression", line=dict(color='red', width=2)))
+    fig.add_trace(go.Scatter(x=betas, y=min_t_curve, mode="lines", 
+                            name="Min t Expression", line=dict(color='red', width=2)))
     
     if custom_curve1 is not None:
         fig.add_trace(go.Scatter(x=betas, y=custom_curve1, mode="markers+lines", 
@@ -255,6 +325,16 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                                     name=f"{name} d/dβ", line=dict(color=color, dash='dash')))
             fig.add_trace(go.Scatter(x=betas, y=derivatives[key][1], mode="lines", 
                                     name=f"{name} d²/dβ²", line=dict(color=color, dash='dot')))
+        
+        # Add derivatives for max_k and min_t curves
+        fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[0], mode="lines", 
+                                name="Max k d/dβ", line=dict(color='red', dash='dash')))
+        fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[1], mode="lines", 
+                                name="Max k d²/dβ²", line=dict(color='red', dash='dot')))
+        fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[0], mode="lines", 
+                                name="Min t d/dβ", line=dict(color='orange', dash='dash')))
+        fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[1], mode="lines", 
+                                name="Min t d²/dβ²", line=dict(color='orange', dash='dot')))
 
     fig.update_layout(
         title="Curves vs β: z*(β) Boundaries and Asymptotic Expressions",
@@ -428,7 +508,9 @@ with tab1:
                 - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
                 - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
                 - **High y Expression** (Green): Asymptotic approximation for high y values
-                - **Low Expression** (Orange): Alternative asymptotic expression
+                - **Low Expression** (Green): Alternative asymptotic expression
+                - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
+                - **Min t Expression** (Red): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
                 - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
                 - **Custom Expression 2** (Magenta): Direct z(β) expression
                 """)
