@@ -71,40 +71,50 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
     return np.array(roots_found)
 
 @st.cache_data
-def compute_eigenvalue_support_boundaries(z_a, y, beta_steps, n_samples=1000, seeds=5):
+def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
+    """
+    For each beta in [0,1] (with beta_steps points), find the minimum and maximum z 
+    for which the discriminant is zero.
+    Returns: betas, lower z*(β) values, and upper z*(β) values.
+    """
+    betas = np.linspace(0, 1, beta_steps)
+    z_min_values = []
+    z_max_values = []
+    for b in betas:
+        roots = find_z_at_discriminant_zero(z_a, y, b, z_min, z_max, z_steps)
+        if len(roots) == 0:
+            z_min_values.append(np.nan)
+            z_max_values.append(np.nan)
+        else:
+            z_min_values.append(np.min(roots))
+            z_max_values.append(np.max(roots))
+    return betas, np.array(z_min_values), np.array(z_max_values)
+
+@st.cache_data
+def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=1000, seeds=5):
     """
     Compute the support boundaries of the eigenvalue distribution by directly
     finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
-    
-    Parameters:
-    -----------
-    z_a : float
-        Value for the delta mass at z_a
-    y : float
-        Aspect ratio p/n
-    beta_steps : int
-        Number of beta values to compute
-    n_samples : int
-        Sample size for each matrix
-    seeds : int
-        Number of different random seeds to average over
-    
-    Returns:
-    --------
-    betas, min_eigenvalues, max_eigenvalues - arrays representing the support boundaries
     """
-    betas = np.linspace(0, 1, beta_steps)
-    min_eigenvalues = np.zeros_like(betas)
-    max_eigenvalues = np.zeros_like(betas)
+    min_eigenvalues = np.zeros_like(beta_values)
+    max_eigenvalues = np.zeros_like(beta_values)
     
-    for i, beta in enumerate(betas):
+    # Use a progress bar for Streamlit
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, beta in enumerate(beta_values):
+        # Update progress
+        progress_bar.progress((i + 1) / len(beta_values))
+        status_text.text(f"Processing β = {beta:.2f} ({i+1}/{len(beta_values)})")
+            
         min_vals = []
         max_vals = []
         
         # Run multiple trials with different seeds for more stable results
         for seed in range(seeds):
             # Set random seed
-            np.random.seed(seed)
+            np.random.seed(seed * 100 + i)
             
             # Compute dimension p based on aspect ratio y
             n = n_samples
@@ -134,27 +144,11 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_steps, n_samples=1000, se
         min_eigenvalues[i] = np.mean(min_vals)
         max_eigenvalues[i] = np.mean(max_vals)
     
-    return betas, min_eigenvalues, max_eigenvalues
-
-@st.cache_data
-def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
-    """
-    For each beta in [0,1] (with beta_steps points), find the minimum and maximum z 
-    for which the discriminant is zero.
-    Returns: betas, lower z*(β) values, and upper z*(β) values.
-    """
-    betas = np.linspace(0, 1, beta_steps)
-    z_min_values = []
-    z_max_values = []
-    for b in betas:
-        roots = find_z_at_discriminant_zero(z_a, y, b, z_min, z_max, z_steps)
-        if len(roots) == 0:
-            z_min_values.append(np.nan)
-            z_max_values.append(np.nan)
-        else:
-            z_min_values.append(np.min(roots))
-            z_max_values.append(np.max(roots))
-    return betas, np.array(z_min_values), np.array(z_max_values)
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    return min_eigenvalues, max_eigenvalues
 
 @st.cache_data
 def compute_high_y_curve(betas, z_a, y):
@@ -314,20 +308,25 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
 def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                           s_num_expr=None, s_denom_expr=None, 
                           z_num_expr=None, z_denom_expr=None,
-                          show_derivatives=False, use_eigenvalue_method=False):
+                          show_derivatives=False,
+                          use_eigenvalue_method=True,
+                          n_samples=1000,
+                          seeds=5):
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
         return None
 
-    # Get beta values and curves based on method
-    if use_eigenvalue_method:
-        # Use direct eigenvalue computation method to find support boundaries
-        betas, z_mins, z_maxs = compute_eigenvalue_support_boundaries(z_a, y, beta_steps)
-    else:
-        # Use discriminant method
-        betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
+    betas = np.linspace(0, 1, beta_steps)
     
-    # Compute other curves
+    if use_eigenvalue_method:
+        # Use the eigenvalue method to compute boundaries
+        st.info("Computing eigenvalue support boundaries. This may take a moment...")
+        min_eigs, max_eigs = compute_eigenvalue_support_boundaries(z_a, y, betas, n_samples, seeds)
+        z_mins, z_maxs = min_eigs, max_eigs
+    else:
+        # Use the original discriminant method
+        betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
+        
     high_y_curve = compute_high_y_curve(betas, z_a, y)
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
     
@@ -354,11 +353,27 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     fig = go.Figure()
     
     # Original curves
-    line_name_suffix = " (Eigenvalue Method)" if use_eigenvalue_method else ""
-    fig.add_trace(go.Scatter(x=betas, y=z_maxs, mode="markers+lines", 
-                            name="Upper z*(β)" + line_name_suffix, line=dict(color='blue')))
-    fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
-                            name="Lower z*(β)" + line_name_suffix, line=dict(color='blue')))
+    if use_eigenvalue_method:
+        fig.add_trace(go.Scatter(x=betas, y=z_maxs, mode="markers+lines", 
+                                name="Upper Bound (Max Eigenvalue)", line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
+                                name="Lower Bound (Min Eigenvalue)", line=dict(color='blue')))
+        # Add shaded region between curves
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([betas, betas[::-1]]),
+            y=np.concatenate([z_maxs, z_mins[::-1]]),
+            fill='toself',
+            fillcolor='rgba(0,0,255,0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+    else:
+        fig.add_trace(go.Scatter(x=betas, y=z_maxs, mode="markers+lines", 
+                                name="Upper z*(β)", line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
+                                name="Lower z*(β)", line=dict(color='blue')))
+
     # Removed the Low y Expression trace
     fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
                             name="High y Expression", line=dict(color='green')))
@@ -381,8 +396,8 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     if show_derivatives:
         # First derivatives
         curve_info = [
-            ('upper', 'Upper z*(β)', 'blue'),
-            ('lower', 'Lower z*(β)', 'lightblue'),
+            ('upper', 'Upper Bound' if use_eigenvalue_method else 'Upper z*(β)', 'blue'),
+            ('lower', 'Lower Bound' if use_eigenvalue_method else 'Lower z*(β)', 'lightblue'),
             # Removed low_y curve
             ('high_y', 'High y', 'green'),
             ('alt_low', 'Alt Low', 'orange')
@@ -409,9 +424,9 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[1], mode="lines", 
                                 name="Min t d²/dβ²", line=dict(color='orange', dash='dot')))
 
-    method_name = "Eigenvalue Method" if use_eigenvalue_method else "Discriminant Method"
     fig.update_layout(
-        title=f"Curves vs β: z*(β) Boundaries and Asymptotic Expressions ({method_name})",
+        title="Curves vs β: Eigenvalue Support Boundaries and Asymptotic Expressions" if use_eigenvalue_method 
+              else "Curves vs β: z*(β) Boundaries and Asymptotic Expressions",
         xaxis_title="β",
         yaxis_title="Value",
         hovermode="x unified",
@@ -544,19 +559,32 @@ tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Differential Analys
 
 # ----- Tab 1: z*(β) Curves -----
 with tab1:
-    st.header("Find z Values where Cubic Roots Transition Between Real and Complex")
+    st.header("Find Eigenvalue Support Boundaries")
     col1, col2 = st.columns([1, 2])
     with col1:
         z_a_1 = st.number_input("z_a", value=1.0, key="z_a_1")
         y_1 = st.number_input("y", value=1.0, key="y_1")
         z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
         z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
-        with st.expander("Resolution Settings"):
-            beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps")
-            z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps")
         
-        # Add option to use eigenvalue method
-        use_eigenvalue_method = st.checkbox("Use Eigenvalue Method", value=True)
+        method_type = st.radio(
+            "Boundary Calculation Method",
+            ["Eigenvalue Method", "Discriminant Method"],
+            index=0  # Default to eigenvalue method
+        )
+        
+        with st.expander("Method Settings"):
+            if method_type == "Eigenvalue Method":
+                beta_steps = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
+                                     key="beta_steps_eigen")
+                n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
+                                    step=100)
+                seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1)
+            else:
+                beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, 
+                                     key="beta_steps")
+                z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, 
+                                  step=1000, key="z_steps")
         
         st.subheader("Custom Expression 1 (s-based)")
         st.markdown("""Enter expressions for s = numerator/denominator 
@@ -574,24 +602,44 @@ with tab1:
 
         show_derivatives = st.checkbox("Show derivatives", value=False)
 
-    if st.button("Compute z vs. β Curves", key="tab1_button"):
+    if st.button("Compute Curves", key="tab1_button"):
         with col2:
-            fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
-                                        s_num, s_denom, z_num, z_denom, show_derivatives, use_eigenvalue_method)
+            use_eigenvalue_method = (method_type == "Eigenvalue Method")
+            if use_eigenvalue_method:
+                fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, None,
+                                            s_num, s_denom, z_num, z_denom, show_derivatives,
+                                            use_eigenvalue_method=True, n_samples=n_samples, 
+                                            seeds=seeds)
+            else:
+                fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
+                                            s_num, s_denom, z_num, z_denom, show_derivatives,
+                                            use_eigenvalue_method=False)
+            
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
-                method_used = "Eigenvalue Method" if use_eigenvalue_method else "Discriminant Method"
-                st.markdown(f"### Curve Explanations (using {method_used})")
-                st.markdown("""
-                - **Upper z*(β)** (Blue): Maximum z value where roots transition between real and complex
-                - **Lower z*(β)** (Light Blue): Minimum z value where roots transition between real and complex
-                - **High y Expression** (Green): Asymptotic approximation for high y values
-                - **Low Expression** (Orange): Alternative asymptotic expression
-                - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
-                - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
-                - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
-                - **Custom Expression 2** (Magenta): Direct z(β) expression
-                """)
+                st.markdown("### Curve Explanations")
+                if use_eigenvalue_method:
+                    st.markdown("""
+                    - **Upper/Lower Bounds** (Blue): Maximum/minimum eigenvalues of B_n = S_n T_n
+                    - **Shaded Region**: Eigenvalue support region
+                    - **High y Expression** (Green): Asymptotic approximation for high y values
+                    - **Low Expression** (Orange): Alternative asymptotic expression
+                    - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
+                    - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                    - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
+                    - **Custom Expression 2** (Magenta): Direct z(β) expression
+                    """)
+                else:
+                    st.markdown("""
+                    - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
+                    - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
+                    - **High y Expression** (Green): Asymptotic approximation for high y values
+                    - **Low Expression** (Orange): Alternative asymptotic expression
+                    - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
+                    - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                    - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
+                    - **Custom Expression 2** (Magenta): Direct z(β) expression
+                    """)
                 if show_derivatives:
                     st.markdown("""
                     Derivatives are shown as:
@@ -651,12 +699,27 @@ with tab3:
         y_diff = st.number_input("y", value=1.0, key="y_diff")
         z_min_diff = st.number_input("z_min", value=-10.0, key="z_min_diff")
         z_max_diff = st.number_input("z_max", value=10.0, key="z_max_diff")
-        with st.expander("Resolution Settings"):
-            beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, key="beta_steps_diff")
-            z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, step=1000, key="z_steps_diff")
         
-        # Add option for eigenvalue method
-        use_eigenvalue_diff = st.checkbox("Use Eigenvalue Method", value=False, key="use_eigenvalue_diff")
+        diff_method_type = st.radio(
+            "Boundary Calculation Method",
+            ["Eigenvalue Method", "Discriminant Method"],
+            index=0,
+            key="diff_method_type"
+        )
+        
+        with st.expander("Resolution Settings"):
+            if diff_method_type == "Eigenvalue Method":
+                beta_steps_diff = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
+                                         key="beta_steps_diff_eigen")
+                diff_n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
+                                        step=100, key="diff_n_samples")
+                diff_seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1,
+                                     key="diff_seeds")
+            else:
+                beta_steps_diff = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, 
+                                         key="beta_steps_diff")
+                z_steps_diff = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, 
+                                      step=1000, key="z_steps_diff")
         
         # Add options for curve selection
         st.subheader("Curves to Analyze")
@@ -666,11 +729,16 @@ with tab3:
 
     if st.button("Compute Differentials", key="tab3_button"):
         with col2:
-            # Use eigenvalue method if selected
-            if use_eigenvalue_diff:
-                betas_diff, lower_vals, upper_vals = compute_eigenvalue_support_boundaries(z_a_diff, y_diff, beta_steps_diff)
+            use_eigenvalue_method_diff = (diff_method_type == "Eigenvalue Method")
+            
+            if use_eigenvalue_method_diff:
+                betas_diff = np.linspace(0, 1, beta_steps_diff)
+                st.info("Computing eigenvalue support boundaries. This may take a moment...")
+                lower_vals, upper_vals = compute_eigenvalue_support_boundaries(
+                    z_a_diff, y_diff, betas_diff, diff_n_samples, diff_seeds)
             else:
-                betas_diff, lower_vals, upper_vals = sweep_beta_and_find_z_bounds(z_a_diff, y_diff, z_min_diff, z_max_diff, beta_steps_diff, z_steps_diff)
+                betas_diff, lower_vals, upper_vals = sweep_beta_and_find_z_bounds(
+                    z_a_diff, y_diff, z_min_diff, z_max_diff, beta_steps_diff, z_steps_diff)
             
             # Create figure
             fig_diff = go.Figure()
@@ -680,13 +748,12 @@ with tab3:
                 d1 = np.gradient(diff_curve, betas_diff)
                 d2 = np.gradient(d1, betas_diff)
                 
-                method_suffix = " (Eigenvalue)" if use_eigenvalue_diff else ""
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=diff_curve, mode="lines", 
-                                name="Upper-Lower Difference" + method_suffix, line=dict(color="magenta", width=2)))
+                                name="Upper-Lower Difference", line=dict(color="magenta", width=2)))
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
-                                name="Upper-Lower d/dβ" + method_suffix, line=dict(color="magenta", dash='dash')))
+                                name="Upper-Lower d/dβ", line=dict(color="magenta", dash='dash')))
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
-                                name="Upper-Lower d²/dβ²" + method_suffix, line=dict(color="magenta", dash='dot')))
+                                name="Upper-Lower d²/dβ²", line=dict(color="magenta", dash='dot')))
 
             if analyze_high_y:
                 high_y_curve = compute_high_y_curve(betas_diff, z_a_diff, y_diff)
@@ -712,9 +779,9 @@ with tab3:
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
                                 name="Alt Low d²/dβ²", line=dict(color="orange", dash='dot')))
 
-            method_name = "Eigenvalue Method" if use_eigenvalue_diff else "Discriminant Method"
             fig_diff.update_layout(
-                title=f"Differential Analysis vs. β ({method_name})",
+                title="Differential Analysis vs. β" + 
+                      (" (Eigenvalue Method)" if use_eigenvalue_method_diff else " (Discriminant Method)"),
                 xaxis_title="β",
                 yaxis_title="Value",
                 hovermode="x unified",
