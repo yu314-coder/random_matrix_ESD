@@ -91,7 +91,7 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
     return betas, np.array(z_min_values), np.array(z_max_values)
 
 @st.cache_data
-def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=1000, seeds=5):
+def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, seeds=5):
     """
     Compute the support boundaries of the eigenvalue distribution by directly
     finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
