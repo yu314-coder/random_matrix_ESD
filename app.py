@@ -137,10 +137,10 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
             S_n = (1 / n) * (X @ X.T)
             
             # Compute B_n = S_n T_n
-            B_n = S_n @ T_n
+            B_n = S_n @ T_n /y_effective
             
             # Compute eigenvalues of B_n
-            eigenvalues = np.linalg.eigvalsh(B_n)
+            eigenvalues = np.linalg.eigvalsh(B_n) 
             
             # Find minimum and maximum eigenvalues
             min_vals.append(np.min(eigenvalues))
