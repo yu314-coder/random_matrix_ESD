@@ -96,7 +96,7 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
     Compute the support boundaries of the eigenvalue distribution by directly
     finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
     """
-    
+    y_effective =y
     min_eigenvalues = np.zeros_like(beta_values)
     max_eigenvalues = np.zeros_like(beta_values)
     
