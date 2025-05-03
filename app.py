@@ -490,10 +490,16 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
 def compute_cubic_roots(z, beta, z_a, y):
     """
-    Compute the roots of the cubic equation for given parameters with improved accuracy.
+    Compute the roots of the cubic equation for given parameters using SymPy for maximum accuracy.
     """
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
+    
+    # Import SymPy functions
+    from sympy import symbols, solve, im, re, N, Poly
+    
+    # Create a symbolic variable for the equation
+    s = symbols('s')
     
     # Coefficients in the form as^3 + bs^2 + cs + d = 0
     a = z * z_a
@@ -501,19 +507,39 @@ def compute_cubic_roots(z, beta, z_a, y):
     c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
     d = 1
     
-    # Special handling for small leading coefficient
+    # Handle special cases
     if abs(a) < 1e-10:
         if abs(b) < 1e-10:  # Linear case
-            roots = np.array([-d/c, 0, 0])
+            roots = np.array([-d/c, 0, 0], dtype=complex)
         else:  # Quadratic case
-            quadratic_roots = np.roots([b, c, d])
-            roots = np.append(quadratic_roots, 0)
-    else:
-        # Use high-precision computation for the cubic
-        coeffs = [a, b, c, d]
-        roots = np.roots(coeffs)
+            quad_roots = np.roots([b, c, d])
+            roots = np.append(quad_roots, 0).astype(complex)
+        return roots
     
-    return roots
+    try:
+        # Create the cubic polynomial
+        cubic_eq = Poly(a*s**3 + b*s**2 + c*s + d, s)
+        
+        # Solve the equation symbolically
+        symbolic_roots = solve(cubic_eq, s)
+        
+        # Convert symbolic roots to complex numbers with high precision
+        numerical_roots = []
+        for root in symbolic_roots:
+            # Use SymPy's N function with high precision
+            numerical_root = complex(N(root, 30))
+            numerical_roots.append(numerical_root)
+        
+        # If we got fewer than 3 roots (due to multiplicity), pad with zeros
+        while len(numerical_roots) < 3:
+            numerical_roots.append(0j)
+            
+        return np.array(numerical_roots, dtype=complex)
+        
+    except Exception as e:
+        # Fallback to numpy if SymPy has issues
+        coeffs = [a, b, c, d]
+        return np.roots(coeffs)
 
 def track_roots_consistently(z_values, all_roots):
     """
@@ -528,58 +554,52 @@ def track_roots_consistently(z_values, all_roots):
         prev_roots = tracked_roots[i-1]
         current_roots = all_roots[i]
         
-        # For each current root, find the closest previous root
+        # For each previous root, find the closest current root
+        assigned = np.zeros(n_roots, dtype=bool)
         assignments = np.zeros(n_roots, dtype=int)
+        
         for j in range(n_roots):
             distances = np.abs(current_roots - prev_roots[j])
-            best_match = np.argmin(distances)
             
-            # If this best match is already assigned, compare distances
-            if best_match in assignments:
-                prev_idx = np.where(assignments == best_match)[0][0]
-                if distances[best_match] < np.abs(current_roots[best_match] - prev_roots[prev_idx]):
-                    # This root is a better match
-                    assignments[j] = best_match
-                    assignments[prev_idx] = -1  # Mark for reassignment
-            else:
-                assignments[j] = best_match
-        
-        # Handle unassigned roots
-        unassigned = np.where(assignments == -1)[0]
-        available = np.setdiff1d(np.arange(n_roots), assignments[assignments >= 0])
-        
-        for j, ua in enumerate(unassigned):
-            if j < len(available):
-                assignments[ua] = available[j]
-            else:
-                # Find the least bad assignment
-                all_distances = np.array([np.abs(current_roots[k] - prev_roots[ua]) for k in range(n_roots)])
-                assigned_indices = assignments[assignments >= 0]
-                mask = np.ones(n_roots, dtype=bool)
-                mask[assigned_indices] = False
-                if np.any(mask):
-                    assignments[ua] = np.where(mask)[0][0]
+            # Find the closest unassigned root
+            while True:
+                best_idx = np.argmin(distances)
+                if not assigned[best_idx]:
+                    assignments[j] = best_idx
+                    assigned[best_idx] = True
+                    break
+                else:
+                    # Mark as infinite distance and try again
+                    distances[best_idx] = np.inf
+                    
+                # Safety check if all are assigned (shouldn't happen)
+                if np.all(distances == np.inf):
+                    assignments[j] = j  # Default to same index
+                    break
         
         # Reorder current roots based on assignments
-        reordered_roots = np.zeros_like(current_roots)
-        for j in range(n_roots):
-            if assignments[j] >= 0:
-                reordered_roots[j] = current_roots[assignments[j]]
-            else:
-                # Find any unassigned root
-                used = np.sort([assignments[k] for k in range(n_roots) if assignments[k] >= 0])
-                unused = np.setdiff1d(np.arange(n_roots), used)
-                if len(unused) > 0:
-                    reordered_roots[j] = current_roots[unused[0]]
-                    assignments[j] = unused[0]
-        
-        tracked_roots[i] = reordered_roots
+        tracked_roots[i] = current_roots[assignments]
     
     return tracked_roots
 
+def generate_cubic_discriminant(z, beta, z_a, y_effective):
+    """
+    Calculate the cubic discriminant using the standard formula.
+    For a cubic ax^3 + bx^2 + cx + d:
+    Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
+    """
+    a = z * z_a
+    b = z * z_a + z + z_a - z_a*y_effective
+    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+    d = 1
+    
+    # Standard formula for cubic discriminant
+    discriminant = (18*a*b*c*d - 27*a**2*d**2 + b**2*c**2 - 2*b**3*d - 9*a*c**3)
+    return discriminant
+
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. z plots with improved accuracy and tracking.
+    Generate Im(s) and Re(s) vs. z plots with improved accuracy using SymPy.
     """
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
@@ -592,34 +612,41 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     
     # Collect all roots first
     all_roots = []
-    for z in z_points:
+    discriminants = []
+    
+    # Progress indicator
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, z in enumerate(z_points):
+        # Update progress
+        progress_bar.progress((i + 1) / n_points)
+        status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
+        
+        # Calculate roots using SymPy
         roots = compute_cubic_roots(z, beta, z_a, y)
-        # Initial sorting to have some consistency
+        
+        # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
+        
+        # Calculate discriminant
+        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
+        discriminants.append(disc)
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
     
     all_roots = np.array(all_roots)
+    discriminants = np.array(discriminants)
     
-    # Track roots consistently
+    # Track roots consistently across z values
     tracked_roots = track_roots_consistently(z_points, all_roots)
     
     # Extract imaginary and real parts
     ims = np.imag(tracked_roots)
     res = np.real(tracked_roots)
-    
-    # Calculate discriminant for verification
-    discriminants = []
-    for z in z_points:
-        a = z * z_a
-        b = z * z_a + z + z_a - z_a*y_effective
-        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
-        d = 1
-        
-        # Cubic discriminant: 18abcd - 27a²d² + b²c² - 2b³d - 9ac³
-        disc = (18*a*b*c*d - 27*a*a*d*d + b*b*c*c - 2*b*b*b*d - 9*a*c*c*c)
-        discriminants.append(disc)
-    
-    discriminants = np.array(discriminants)
     
     # Create figure for imaginary parts
     fig_im = go.Figure()
@@ -702,7 +729,7 @@ def analyze_complex_root_structure(beta_values, z, z_a, y):
 
 def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. β plots with improved accuracy.
+    Generate Im(s) and Re(s) vs. β plots with improved accuracy using SymPy.
     """
     if z_a <= 0 or y <= 0 or beta_min >= beta_max:
         st.error("Invalid input parameters.")
@@ -715,34 +742,41 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     
     # Collect all roots first
     all_roots = []
-    for beta in beta_points:
+    discriminants = []
+    
+    # Progress indicator
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, beta in enumerate(beta_points):
+        # Update progress
+        progress_bar.progress((i + 1) / n_points)
+        status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
+        
+        # Calculate roots using SymPy
         roots = compute_cubic_roots(z, beta, z_a, y)
-        # Initial sorting to have some consistency
+        
+        # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
+        
+        # Calculate discriminant
+        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
+        discriminants.append(disc)
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
     
     all_roots = np.array(all_roots)
+    discriminants = np.array(discriminants)
     
-    # Track roots consistently
+    # Track roots consistently across beta values
     tracked_roots = track_roots_consistently(beta_points, all_roots)
     
     # Extract imaginary and real parts
     ims = np.imag(tracked_roots)
     res = np.real(tracked_roots)
-    
-    # Calculate discriminant for verification
-    discriminants = []
-    for beta in beta_points:
-        a = z * z_a
-        b = z * z_a + z + z_a - z_a*y_effective
-        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
-        d = 1
-        
-        # Cubic discriminant
-        disc = (18*a*b*c*d - 27*a*a*d*d + b*b*c*c - 2*b*b*b*d - 9*a*c*c*c)
-        discriminants.append(disc)
-    
-    discriminants = np.array(discriminants)
     
     # Create figure for imaginary parts
     fig_im = go.Figure()
