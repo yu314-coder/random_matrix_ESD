@@ -601,9 +601,9 @@ with tab1:
     # Advanced settings in collapsed expanders
     with st.expander("Method Settings", expanded=False):
         if method_type == "Eigenvalue Method":
-            beta_steps = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
+            beta_steps = st.slider("β steps", min_value=21, max_value=10001, value=51, step=10, 
                                   key="beta_steps_eigen")
-            n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
+            n_samples = st.slider("Matrix size (n)", min_value=100, max_value=200000, value=1000, 
                                 step=100)
             seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1)
         else:
