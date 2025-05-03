@@ -44,8 +44,11 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
     Scan z in [z_min, z_max] for sign changes in the discriminant,
     and return approximated roots (where the discriminant is zero).
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     z_grid = np.linspace(z_min, z_max, steps)
-    disc_vals = discriminant_func(z_grid, beta, z_a, y)
+    disc_vals = discriminant_func(z_grid, beta, z_a, y_effective)
     roots_found = []
     for i in range(len(z_grid) - 1):
         f1, f2 = disc_vals[i], disc_vals[i+1]
@@ -59,7 +62,7 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
             zl, zr = z_grid[i], z_grid[i+1]
             for _ in range(50):
                 mid = 0.5 * (zl + zr)
-                fm = discriminant_func(mid, beta, z_a, y)
+                fm = discriminant_func(mid, beta, z_a, y_effective)
                 if fm == 0:
                     zl = zr = mid
                     break
@@ -174,6 +177,7 @@ def compute_high_y_curve(betas, z_a, y):
     numerator = -4*a*(a-1)*y_effective*betas - 2*a*y_effective - 2*a*(2*a-1)
     return numerator/denominator
 
+@st.cache_data
 def compute_alternate_low_expr(betas, z_a, y):
     """
     Compute the alternate low expression:
@@ -413,7 +417,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     # Add Low Expression only if selected
     if show_low_y and alt_low_expr is not None:
         fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
-                                name="Low Expression", line=dict(color='green')))
+                                name="Low Expression", line=dict(color='orange')))
     
     # Add the max/min curves if selected
     if show_max_k and max_k_curve is not None:
@@ -422,14 +426,14 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     
     if show_min_t and min_t_curve is not None:
         fig.add_trace(go.Scatter(x=betas, y=min_t_curve, mode="lines", 
-                                name="Min t Expression", line=dict(color='orange', width=2)))
+                                name="Min t Expression", line=dict(color='purple', width=2)))
     
     if custom_curve1 is not None:
         fig.add_trace(go.Scatter(x=betas, y=custom_curve1, mode="markers+lines", 
-                                name="Custom 1 (s-based)", line=dict(color='purple')))
+                                name="Custom 1 (s-based)", line=dict(color='magenta')))
     if custom_curve2 is not None:
         fig.add_trace(go.Scatter(x=betas, y=custom_curve2, mode="markers+lines", 
-                                name="Custom 2 (direct)", line=dict(color='magenta')))
+                                name="Custom 2 (direct)", line=dict(color='brown')))
 
     if show_derivatives:
         # First derivatives
@@ -444,9 +448,9 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
             curve_info.append(('alt_low', 'Alt Low', 'orange'))
         
         if custom_curve1 is not None:
-            curve_info.append(('custom1', 'Custom 1', 'purple'))
+            curve_info.append(('custom1', 'Custom 1', 'magenta'))
         if custom_curve2 is not None:
-            curve_info.append(('custom2', 'Custom 2', 'magenta'))
+            curve_info.append(('custom2', 'Custom 2', 'brown'))
 
         for key, name, color in curve_info:
             if key in derivatives:
@@ -464,9 +468,9 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         
         if show_min_t and min_t_curve is not None:
             fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[0], mode="lines", 
-                                    name="Min t d/dβ", line=dict(color='orange', dash='dash')))
+                                    name="Min t d/dβ", line=dict(color='purple', dash='dash')))
             fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[1], mode="lines", 
-                                    name="Min t d²/dβ²", line=dict(color='orange', dash='dot')))
+                                    name="Min t d²/dβ²", line=dict(color='purple', dash='dot')))
 
     fig.update_layout(
         title="Curves vs β: Eigenvalue Support Boundaries and Asymptotic Expressions" if use_eigenvalue_method 
@@ -507,6 +511,9 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
         st.error("Invalid input parameters.")
         return None, None
 
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     z_points = np.linspace(z_min, z_max, n_points)
     ims, res = [], []
     for z in z_points:
@@ -531,6 +538,129 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     fig_re.update_layout(title=f"Re{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
     return fig_im, fig_re
+
+def analyze_complex_root_structure(beta_values, z, z_a, y):
+    """
+    Analyze when the cubic equation switches between having all real roots
+    and having a complex conjugate pair plus one real root.
+    
+    Returns:
+    - transition_points: beta values where the root structure changes
+    - structure_types: list indicating whether each interval has all real roots or complex roots
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    transition_points = []
+    structure_types = []
+    
+    previous_type = None
+    
+    for beta in beta_values:
+        roots = compute_cubic_roots(z, beta, z_a, y)
+        
+        # Check if all roots are real (imaginary parts close to zero)
+        is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
+        
+        current_type = "real" if is_all_real else "complex"
+        
+        if previous_type is not None and current_type != previous_type:
+            # Found a transition point
+            transition_points.append(beta)
+            structure_types.append(previous_type)
+        
+        previous_type = current_type
+    
+    # Add the final interval type
+    if previous_type is not None:
+        structure_types.append(previous_type)
+    
+    return transition_points, structure_types
+
+def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
+    """
+    Generate Im(s) and Re(s) vs. β plots.
+    """
+    if z_a <= 0 or y <= 0 or beta_min >= beta_max:
+        st.error("Invalid input parameters.")
+        return None, None, None
+
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    beta_points = np.linspace(beta_min, beta_max, n_points)
+    ims, res = [], []
+    for beta in beta_points:
+        roots = compute_cubic_roots(z, beta, z_a, y)
+        roots = sorted(roots, key=lambda x: abs(x.imag))
+        ims.append([root.imag for root in roots])
+        res.append([root.real for root in roots])
+    ims = np.array(ims)
+    res = np.array(res)
+
+    # Find transition points in root structure
+    transition_points, structure_types = analyze_complex_root_structure(beta_points, z, z_a, y)
+    
+    # Create traces for imaginary parts
+    fig_im = go.Figure()
+    for i in range(3):
+        fig_im.add_trace(go.Scatter(x=beta_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}",
+                                    line=dict(width=2)))
+    
+    # Add vertical lines at transition points
+    for beta in transition_points:
+        fig_im.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
+        
+    fig_im.update_layout(title=f"Im{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Im{s}", hovermode="x unified")
+
+    # Create traces for real parts
+    fig_re = go.Figure()
+    for i in range(3):
+        fig_re.add_trace(go.Scatter(x=beta_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}",
+                                    line=dict(width=2)))
+    
+    # Add vertical lines at transition points
+    for beta in transition_points:
+        fig_re.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
+        
+    fig_re.update_layout(title=f"Re{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Re{s}", hovermode="x unified")
+    
+    # Create a plot showing the discriminant
+    fig_disc = go.Figure()
+    
+    # Calculate discriminant as a function of beta
+    discriminant_values = []
+    for beta in beta_points:
+        # For cubic ax^3 + bx^2 + cx + d, the discriminant is:
+        # Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
+        
+        a = z * z_a
+        b = z * z_a + z + z_a - z_a*y_effective
+        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+        d = 1
+        
+        delta0 = b*b - 3*a*c
+        delta1 = 2*b*b*b - 9*a*b*c + 27*a*a*d
+        discriminant = delta1*delta1 - 4*delta0*delta0*delta0
+        
+        discriminant_values.append(discriminant)
+    
+    fig_disc.add_trace(go.Scatter(x=beta_points, y=discriminant_values, mode="lines",
+                                  name="Discriminant", line=dict(width=2, color="black")))
+    
+    # Add horizontal line at y=0
+    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
+    
+    # Add vertical lines at transition points
+    for beta in transition_points:
+        fig_disc.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
+    
+    fig_disc.update_layout(title=f"Cubic Discriminant vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                           xaxis_title="β", yaxis_title="Discriminant", hovermode="x unified")
+    
+    return fig_im, fig_re, fig_disc
 
 @st.cache_data
 def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
@@ -591,13 +721,77 @@ def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
         showlegend=True
     )
     
+    return fig, eigenvalues
+
+def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_max=10.0, 
+                          beta_steps=100, z_steps=100):
+    """
+    Generate a phase diagram showing regions of complex and real roots.
+    
+    Returns a heatmap where:
+    - Value 1 (red): Region with all real roots
+    - Value -1 (blue): Region with complex roots
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    beta_values = np.linspace(beta_min, beta_max, beta_steps)
+    z_values = np.linspace(z_min, z_max, z_steps)
+    
+    # Initialize phase map
+    phase_map = np.zeros((z_steps, beta_steps))
+    
+    # Progress tracking
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, z in enumerate(z_values):
+        # Update progress
+        progress_bar.progress((i + 1) / len(z_values))
+        status_text.text(f"Analyzing phase at z = {z:.2f} ({i+1}/{len(z_values)})")
+        
+        for j, beta in enumerate(beta_values):
+            roots = compute_cubic_roots(z, beta, z_a, y)
+            
+            # Check if all roots are real (imaginary parts close to zero)
+            is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
+            
+            phase_map[i, j] = 1 if is_all_real else -1
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Create heatmap
+    fig = go.Figure(data=go.Heatmap(
+        z=phase_map,
+        x=beta_values,
+        y=z_values,
+        colorscale=[[0, 'blue'], [0.5, 'white'], [1.0, 'red']],
+        zmin=-1,
+        zmax=1,
+        showscale=True,
+        colorbar=dict(
+            title="Root Type",
+            tickvals=[-1, 1],
+            ticktext=["Complex Roots", "All Real Roots"]
+        )
+    ))
+    
+    fig.update_layout(
+        title=f"Phase Diagram: Root Structure (y={y:.3f}, z_a={z_a:.3f})",
+        xaxis_title="β",
+        yaxis_title="z",
+        hovermode="closest"
+    )
+    
     return fig
 
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis")
 
-# Define three tabs (removed "Curve Intersections")
-tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Differential Analysis"])
+# Define three tabs
+tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Complex Root Analysis", "Differential Analysis"])
 
 # ----- Tab 1: z*(β) Curves -----
 with tab1:
@@ -692,20 +886,20 @@ with tab1:
                         - **High y Expression** (Green): Asymptotic approximation for high y values
                         - **Low Expression** (Orange): Alternative asymptotic expression
                         - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
-                        - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
-                        - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
-                        - **Custom Expression 2** (Magenta): Direct z(β) expression
+                        - **Min t Expression** (Purple): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                        - **Custom Expression 1** (Magenta): Result from user-defined s substituted into the main formula
+                        - **Custom Expression 2** (Brown): Direct z(β) expression
                         """)
                     else:
                         st.markdown("""
                         - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
-                        - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
+                        - **Lower z*(β)** (Blue): Minimum z value where discriminant is zero
                         - **High y Expression** (Green): Asymptotic approximation for high y values
                         - **Low Expression** (Orange): Alternative asymptotic expression
                         - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
-                        - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
-                        - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
-                        - **Custom Expression 2** (Magenta): Direct z(β) expression
+                        - **Min t Expression** (Purple): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                        - **Custom Expression 1** (Magenta): Result from user-defined s substituted into the main formula
+                        - **Custom Expression 2** (Brown): Direct z(β) expression
                         """)
                     if show_derivatives:
                         st.markdown("""
@@ -714,48 +908,200 @@ with tab1:
                         - Dotted lines: Second derivatives (d²/dβ²)
                         """)
 
-# ----- Tab 2: Im{s} vs. z -----
+# ----- Tab 2: Complex Root Analysis -----
 with tab2:
-    st.header("Plot Complex Roots vs. z")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        beta = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2")
-        y_2 = st.number_input("y", value=1.0, key="y_tab2")
-        z_a_2 = st.number_input("z_a", value=1.0, key="z_a_tab2")
-        z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_tab2")
-        z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
-        with st.expander("Resolution Settings", expanded=False):
-            z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
-    if st.button("Compute Complex Roots vs. z", key="tab2_button"):
-        with col2:
-            fig_im, fig_re = generate_root_plots(beta, y_2, z_a_2, z_min_2, z_max_2, z_points)
-            if fig_im is not None and fig_re is not None:
-                st.plotly_chart(fig_im, use_container_width=True)
-                st.plotly_chart(fig_re, use_container_width=True)
+    st.header("Complex Root Analysis")
     
-    # Add a separator
-    st.markdown("---")
+    # Create tabs within the page for different plots
+    plot_tabs = st.tabs(["Im{s} vs. z", "Im{s} vs. β", "Phase Diagram", "Eigenvalue Distribution"])
     
-    # Add eigenvalue distribution section
-    st.header("Eigenvalue Distribution for B_n = S_n T_n")
-    with st.expander("Simulation Information", expanded=False):
-        st.markdown("""
-        This simulation generates the eigenvalue distribution of B_n as n→∞, where:
-        - B_n = (1/n)XX* with X being a p×n matrix
-        - p/n → y as n→∞
-        - All elements of X are i.i.d with distribution β·δ(z_a) + (1-β)·δ(1)
-        """)
-    
-    col_eigen1, col_eigen2 = st.columns([1, 2])
-    with col_eigen1:
-        n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
-        sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
+    # Tab for Im{s} vs. z plot
+    with plot_tabs[0]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            beta_z = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2_z")
+            y_z = st.number_input("y", value=1.0, key="y_tab2_z")
+            z_a_z = st.number_input("z_a", value=1.0, key="z_a_tab2_z")
+            z_min_z = st.number_input("z_min", value=-10.0, key="z_min_tab2_z")
+            z_max_z = st.number_input("z_max", value=10.0, key="z_max_tab2_z")
+            with st.expander("Resolution Settings", expanded=False):
+                z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points_z")
+        if st.button("Compute Complex Roots vs. z", key="tab2_button_z"):
+            with col2:
+                fig_im, fig_re = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
+                if fig_im is not None and fig_re is not None:
+                    st.plotly_chart(fig_im, use_container_width=True)
+                    st.plotly_chart(fig_re, use_container_width=True)
 
-    if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
-        with col_eigen2:
-            fig_eigen = generate_eigenvalue_distribution(beta, y_2, z_a_2, n=n_samples, seed=sim_seed)
-            if fig_eigen is not None:
+    # New tab for Im{s} vs. β plot
+    with plot_tabs[1]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            z_beta = st.number_input("z", value=1.0, key="z_tab2_beta")
+            y_beta = st.number_input("y", value=1.0, key="y_tab2_beta")
+            z_a_beta = st.number_input("z_a", value=1.0, key="z_a_tab2_beta")
+            beta_min = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_tab2")
+            beta_max = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_tab2")
+            with st.expander("Resolution Settings", expanded=False):
+                beta_points = st.slider("β grid points", min_value=100, max_value=1000, value=500, step=100, key="beta_points")
+        if st.button("Compute Complex Roots vs. β", key="tab2_button_beta"):
+            with col2:
+                fig_im_beta, fig_re_beta, fig_disc = generate_roots_vs_beta_plots(
+                    z_beta, y_beta, z_a_beta, beta_min, beta_max, beta_points)
+                
+                if fig_im_beta is not None and fig_re_beta is not None and fig_disc is not None:
+                    st.plotly_chart(fig_im_beta, use_container_width=True)
+                    st.plotly_chart(fig_re_beta, use_container_width=True)
+                    st.plotly_chart(fig_disc, use_container_width=True)
+                    
+                    # Add analysis of transition points
+                    transition_points, structure_types = analyze_complex_root_structure(
+                        np.linspace(beta_min, beta_max, beta_points), z_beta, z_a_beta, y_beta)
+                    
+                    if transition_points:
+                        st.subheader("Root Structure Transition Points")
+                        for i, beta in enumerate(transition_points):
+                            prev_type = structure_types[i]
+                            next_type = structure_types[i+1] if i+1 < len(structure_types) else "unknown"
+                            st.markdown(f"- At β = {beta:.6f}: Transition from {prev_type} roots to {next_type} roots")
+                    else:
+                        st.info("No transitions detected in root structure across this β range.")
+                    
+                    # Explanation
+                    with st.expander("Analysis Explanation", expanded=False):
+                        st.markdown("""
+                        ### Interpreting the Plots
+                        
+                        - **Im{s} vs. β**: Shows how the imaginary parts of the roots change with β. When all curves are at Im{s}=0, all roots are real.
+                        - **Re{s} vs. β**: Shows how the real parts of the roots change with β.
+                        - **Discriminant Plot**: The cubic discriminant changes sign at points where the root structure changes.
+                          - When discriminant < 0: The cubic has one real root and two complex conjugate roots.
+                          - When discriminant > 0: The cubic has three distinct real roots.
+                          - When discriminant = 0: The cubic has multiple roots (at least two roots are equal).
+                        
+                        The vertical red dashed lines mark the transition points where the root structure changes.
+                        """)
+    
+    # Tab for Phase Diagram
+    with plot_tabs[2]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            z_a_phase = st.number_input("z_a", value=1.0, key="z_a_phase")
+            y_phase = st.number_input("y", value=1.0, key="y_phase")
+            beta_min_phase = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_phase")
+            beta_max_phase = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_phase")
+            z_min_phase = st.number_input("z_min", value=-10.0, key="z_min_phase")
+            z_max_phase = st.number_input("z_max", value=10.0, key="z_max_phase")
+            
+            with st.expander("Resolution Settings", expanded=False):
+                beta_steps_phase = st.slider("β grid points", min_value=20, max_value=200, value=100, step=20, key="beta_steps_phase")
+                z_steps_phase = st.slider("z grid points", min_value=20, max_value=200, value=100, step=20, key="z_steps_phase")
+        
+        if st.button("Generate Phase Diagram", key="tab2_button_phase"):
+            with col2:
+                st.info("Generating phase diagram. This may take a while depending on resolution...")
+                fig_phase = generate_phase_diagram(
+                    z_a_phase, y_phase, beta_min_phase, beta_max_phase, z_min_phase, z_max_phase, 
+                    beta_steps_phase, z_steps_phase)
+                
+                if fig_phase is not None:
+                    st.plotly_chart(fig_phase, use_container_width=True)
+                    
+                    with st.expander("Phase Diagram Explanation", expanded=False):
+                        st.markdown("""
+                        ### Understanding the Phase Diagram
+                        
+                        This heatmap shows the regions in the (β, z) plane where:
+                        
+                        - **Red Regions**: The cubic equation has all real roots
+                        - **Blue Regions**: The cubic equation has one real root and two complex conjugate roots
+                        
+                        The boundaries between these regions represent values where the discriminant is zero,
+                        which are the exact same curves as the z*(β) boundaries in the first tab. This phase
+                        diagram provides a comprehensive view of the eigenvalue support structure.
+                        """)
+
+    # Eigenvalue distribution tab
+    with plot_tabs[3]:
+        st.subheader("Eigenvalue Distribution for B_n = S_n T_n")
+        with st.expander("Simulation Information", expanded=False):
+            st.markdown("""
+            This simulation generates the eigenvalue distribution of B_n as n→∞, where:
+            - B_n = (1/n)XX^T with X being a p×n matrix
+            - p/n → y as n→∞
+            - The diagonal entries of T_n follow distribution β·δ(z_a) + (1-β)·δ(1)
+            """)
+        
+        col_eigen1, col_eigen2 = st.columns([1, 2])
+        with col_eigen1:
+            beta_eigen = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_eigen")
+            y_eigen = st.number_input("y", value=1.0, key="y_eigen")
+            z_a_eigen = st.number_input("z_a", value=1.0, key="z_a_eigen")
+            n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
+            sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
+            
+            # Add comparison option
+            show_theoretical = st.checkbox("Show theoretical boundaries", value=True)
+            show_empirical_stats = st.checkbox("Show empirical statistics", value=True)
+
+        if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
+            with col_eigen2:
+                # Generate the eigenvalue distribution
+                fig_eigen, eigenvalues = generate_eigenvalue_distribution(beta_eigen, y_eigen, z_a_eigen, n=n_samples, seed=sim_seed)
+                
+                # If requested, compute and add theoretical boundaries
+                if show_theoretical:
+                    # Calculate min and max eigenvalues using the support boundary functions
+                    betas = np.array([beta_eigen])
+                    min_eig, max_eig = compute_eigenvalue_support_boundaries(z_a_eigen, y_eigen, betas, n_samples=n_samples, seeds=5)
+                    
+                    # Add vertical lines for boundaries
+                    fig_eigen.add_vline(
+                        x=min_eig[0], 
+                        line=dict(color="red", width=2, dash="dash"),
+                        annotation_text="Min theoretical",
+                        annotation_position="top right"
+                    )
+                    fig_eigen.add_vline(
+                        x=max_eig[0], 
+                        line=dict(color="red", width=2, dash="dash"),
+                        annotation_text="Max theoretical",
+                        annotation_position="top left"
+                    )
+                
+                # Display the plot
                 st.plotly_chart(fig_eigen, use_container_width=True)
+                
+                # Add comparison of empirical vs theoretical bounds
+                if show_theoretical and show_empirical_stats:
+                    empirical_min = eigenvalues.min()
+                    empirical_max = eigenvalues.max()
+                    
+                    st.markdown("### Comparison of Empirical vs Theoretical Bounds")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Theoretical Min", f"{min_eig[0]:.4f}")
+                        st.metric("Theoretical Max", f"{max_eig[0]:.4f}")
+                        st.metric("Theoretical Width", f"{max_eig[0] - min_eig[0]:.4f}")
+                    with col2:
+                        st.metric("Empirical Min", f"{empirical_min:.4f}")
+                        st.metric("Empirical Max", f"{empirical_max:.4f}")
+                        st.metric("Empirical Width", f"{empirical_max - empirical_min:.4f}")
+                    with col3:
+                        st.metric("Min Difference", f"{empirical_min - min_eig[0]:.4f}")
+                        st.metric("Max Difference", f"{empirical_max - max_eig[0]:.4f}")
+                        st.metric("Width Difference", f"{(empirical_max - empirical_min) - (max_eig[0] - min_eig[0]):.4f}")
+                
+                # Display additional statistics
+                if show_empirical_stats:
+                    st.markdown("### Eigenvalue Statistics")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Mean", f"{np.mean(eigenvalues):.4f}")
+                        st.metric("Median", f"{np.median(eigenvalues):.4f}")
+                    with col2:
+                        st.metric("Standard Deviation", f"{np.std(eigenvalues):.4f}")
+                        st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.4f}")
 
 # ----- Tab 3: Differential Analysis -----
 with tab3:
@@ -795,7 +1141,7 @@ with tab3:
         st.subheader("Curves to Analyze")
         analyze_upper_lower = st.checkbox("Upper-Lower Difference", value=True)
         analyze_high_y = st.checkbox("High y Expression", value=False)
-        analyze_alt_low = st.checkbox("Alternate Low Expression", value=False)
+        analyze_alt_low = st.checkbox("Low y Expression", value=False)
 
     if st.button("Compute Differentials", key="tab3_button"):
         with col2:
@@ -843,11 +1189,11 @@ with tab3:
                 d2 = np.gradient(d1, betas_diff)
                 
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=alt_low_curve, mode="lines", 
-                                name="Alt Low", line=dict(color="orange", width=2)))
+                                name="Low y", line=dict(color="orange", width=2)))
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d1, mode="lines", 
-                                name="Alt Low d/dβ", line=dict(color="orange", dash='dash')))
+                                name="Low y d/dβ", line=dict(color="orange", dash='dash')))
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
-                                name="Alt Low d²/dβ²", line=dict(color="orange", dash='dot')))
+                                name="Low y d²/dβ²", line=dict(color="orange", dash='dot')))
 
             fig_diff.update_layout(
                 title="Differential Analysis vs. β" + 
