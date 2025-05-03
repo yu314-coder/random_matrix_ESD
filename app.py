@@ -96,6 +96,9 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
     Compute the support boundaries of the eigenvalue distribution by directly
     finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     min_eigenvalues = np.zeros_like(beta_values)
     max_eigenvalues = np.zeros_like(beta_values)
     
@@ -118,11 +121,16 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
             
             # Compute dimension p based on aspect ratio y
             n = n_samples
-            p = int(y * n)
+            p = int(y_effective * n)
             
             # Constructing T_n (Population / Shape Matrix)
-            T_diag = np.where(np.random.rand(p) < beta, z_a, 1.0)
-            T_n = np.diag(T_diag)
+            k = int(np.floor(beta * p))
+            diag_entries = np.concatenate([
+                np.full(k, z_a),
+                np.full(p - k, 1.0)
+            ])
+            np.random.shuffle(diag_entries)
+            T_n = np.diag(diag_entries)
             
             # Generate the data matrix X with i.i.d. standard normal entries
             X = np.random.randn(p, n)
@@ -155,12 +163,15 @@ def compute_high_y_curve(betas, z_a, y):
     """
     Compute the "High y Expression" curve.
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     a = z_a
     betas = np.array(betas)
     denominator = 1 - 2*a
     if denominator == 0:
         return np.full_like(betas, np.nan)
-    numerator = -4*a*(a-1)*y*betas - 2*a*y - 2*a*(2*a-1)
+    numerator = -4*a*(a-1)*y_effective*betas - 2*a*y_effective - 2*a*(2*a-1)
     return numerator/denominator
 
 def compute_alternate_low_expr(betas, z_a, y):
@@ -168,14 +179,20 @@ def compute_alternate_low_expr(betas, z_a, y):
     Compute the alternate low expression:
     (z_a*y*beta*(z_a-1) - 2*z_a*(1-y) - 2*z_a**2) / (2+2*z_a)
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     betas = np.array(betas)
-    return (z_a * y * betas * (z_a - 1) - 2*z_a*(1 - y) - 2*z_a**2) / (2 + 2*z_a)
+    return (z_a * y_effective * betas * (z_a - 1) - 2*z_a*(1 - y_effective) - 2*z_a**2) / (2 + 2*z_a)
 
 @st.cache_data
 def compute_max_k_expression(betas, z_a, y, k_samples=1000):
     """
     Compute max_{k ∈ (0,∞)} (y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)) / ((a*k+1)*(k^2+k))
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     a = z_a
     # Sample k values on a logarithmic scale
     k_values = np.logspace(-3, 3, k_samples)
@@ -184,7 +201,7 @@ def compute_max_k_expression(betas, z_a, y, k_samples=1000):
     for i, beta in enumerate(betas):
         values = np.zeros_like(k_values)
         for j, k in enumerate(k_values):
-            numerator = y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)
+            numerator = y_effective*beta*(a-1)*k + (a*k+1)*((y_effective-1)*k-1)
             denominator = (a*k+1)*(k**2+k)
             if abs(denominator) < 1e-10:
                 values[j] = np.nan
@@ -204,6 +221,9 @@ def compute_min_t_expression(betas, z_a, y, t_samples=1000):
     """
     Compute min_{t ∈ (-1/a, 0)} (y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)) / ((a*t+1)*(t^2+t))
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     a = z_a
     if a <= 0:
         return np.full_like(betas, np.nan)
@@ -215,7 +235,7 @@ def compute_min_t_expression(betas, z_a, y, t_samples=1000):
     for i, beta in enumerate(betas):
         values = np.zeros_like(t_values)
         for j, t in enumerate(t_values):
-            numerator = y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)
+            numerator = y_effective*beta*(a-1)*t + (a*t+1)*((y_effective-1)*t-1)
             denominator = (a*t+1)*(t**2+t)
             if abs(denominator) < 1e-10:
                 values[j] = np.nan
@@ -272,6 +292,9 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
     Compute custom curve. If is_s_based=True, compute using s substitution.
     Otherwise, compute direct z(β) expression.
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
     local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "sp": sp}
     
@@ -300,7 +323,7 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
     
     final_func = sp.lambdify((beta_sym, z_a_sym, y_sym), final_expr, modules=["numpy"])
     with np.errstate(divide='ignore', invalid='ignore'):
-        result = final_func(betas, z_a, y)
+        result = final_func(betas, z_a, y_effective)
         if np.isscalar(result):
             result = np.full_like(betas, result)
     return result
@@ -444,9 +467,12 @@ def compute_cubic_roots(z, beta, z_a, y):
     """
     Compute the roots of the cubic equation for given parameters.
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     a = z * z_a
-    b = z * z_a + z + z_a - z_a*y
-    c = z + z_a + 1 - y*(beta*z_a + 1 - beta)
+    b = z * z_a + z + z_a - z_a*y_effective
+    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
     d = 1
     coeffs = [a, b, c, d]
     roots = np.roots(coeffs)
@@ -489,29 +515,24 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
 def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
     """
     Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
-    
-    Parameters:
-    -----------
-    beta : float
-        Fraction of components equal to z_a
-    y : float
-        Aspect ratio p/n
-    z_a : float
-        Value for the delta mass at z_a
-    n : int
-        Number of samples
-    seed : int
-        Random seed for reproducibility
     """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     # Set random seed
     np.random.seed(seed)
     
     # Compute dimension p based on aspect ratio y
-    p = int(y * n)
+    p = int(y_effective * n)
     
-    # Constructing T_n (Population / Shape Matrix)
-    T_diag = np.where(np.random.rand(p) < beta, z_a, 1.0)
-    T_n = np.diag(T_diag)
+    # Constructing T_n (Population / Shape Matrix) - using the approach from the second script
+    k = int(np.floor(beta * p))
+    diag_entries = np.concatenate([
+        np.full(k, z_a),
+        np.full(p - k, 1.0)
+    ])
+    np.random.shuffle(diag_entries)
+    T_n = np.diag(diag_entries)
     
     # Generate the data matrix X with i.i.d. standard normal entries
     X = np.random.randn(p, n)
@@ -559,34 +580,42 @@ tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Im{s} vs. z", "Differential Analys
 
 # ----- Tab 1: z*(β) Curves -----
 with tab1:
-    st.header("Find Eigenvalue Support Boundaries")
-    col1, col2 = st.columns([1, 2])
+    st.header("Eigenvalue Support Boundaries")
+    
+    # Cleaner layout with better column organization
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
     with col1:
         z_a_1 = st.number_input("z_a", value=1.0, key="z_a_1")
         y_1 = st.number_input("y", value=1.0, key="y_1")
+        
+    with col2:
         z_min_1 = st.number_input("z_min", value=-10.0, key="z_min_1")
         z_max_1 = st.number_input("z_max", value=10.0, key="z_max_1")
-        
+    
+    with col1:
         method_type = st.radio(
-            "Boundary Calculation Method",
+            "Calculation Method",
             ["Eigenvalue Method", "Discriminant Method"],
             index=0  # Default to eigenvalue method
         )
-        
-        with st.expander("Method Settings"):
-            if method_type == "Eigenvalue Method":
-                beta_steps = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
-                                     key="beta_steps_eigen")
-                n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
-                                    step=100)
-                seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1)
-            else:
-                beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, 
-                                     key="beta_steps")
-                z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, 
-                                  step=1000, key="z_steps")
-        
-        st.subheader("Custom Expression 1 (s-based)")
+    
+    # Advanced settings in collapsed expanders
+    with st.expander("Method Settings", expanded=False):
+        if method_type == "Eigenvalue Method":
+            beta_steps = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
+                                  key="beta_steps_eigen")
+            n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
+                                step=100)
+            seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1)
+        else:
+            beta_steps = st.slider("β steps", min_value=51, max_value=501, value=201, step=50, 
+                                  key="beta_steps")
+            z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, 
+                              step=1000, key="z_steps")
+    
+    # Custom expressions collapsed by default
+    with st.expander("Custom Expression 1 (s-based)", expanded=False):
         st.markdown("""Enter expressions for s = numerator/denominator 
                     (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
         st.latex(r"\text{This s will be inserted into:}")
@@ -594,16 +623,19 @@ with tab1:
         s_num = st.text_input("s numerator", value="", key="s_num")
         s_denom = st.text_input("s denominator", value="", key="s_denom")
 
-        st.subheader("Custom Expression 2 (direct z(β))")
+    with st.expander("Custom Expression 2 (direct z(β))", expanded=False):
         st.markdown("""Enter direct expression for z(β) = numerator/denominator 
                     (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
         z_num = st.text_input("z(β) numerator", value="", key="z_num")
         z_denom = st.text_input("z(β) denominator", value="", key="z_denom")
 
+    # Move show_derivatives to main UI level for better visibility
+    with col2:
         show_derivatives = st.checkbox("Show derivatives", value=False)
 
+    # Compute button
     if st.button("Compute Curves", key="tab1_button"):
-        with col2:
+        with col3:
             use_eigenvalue_method = (method_type == "Eigenvalue Method")
             if use_eigenvalue_method:
                 fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, None,
@@ -617,35 +649,37 @@ with tab1:
             
             if fig is not None:
                 st.plotly_chart(fig, use_container_width=True)
-                st.markdown("### Curve Explanations")
-                if use_eigenvalue_method:
-                    st.markdown("""
-                    - **Upper/Lower Bounds** (Blue): Maximum/minimum eigenvalues of B_n = S_n T_n
-                    - **Shaded Region**: Eigenvalue support region
-                    - **High y Expression** (Green): Asymptotic approximation for high y values
-                    - **Low Expression** (Orange): Alternative asymptotic expression
-                    - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
-                    - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
-                    - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
-                    - **Custom Expression 2** (Magenta): Direct z(β) expression
-                    """)
-                else:
-                    st.markdown("""
-                    - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
-                    - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
-                    - **High y Expression** (Green): Asymptotic approximation for high y values
-                    - **Low Expression** (Orange): Alternative asymptotic expression
-                    - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
-                    - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
-                    - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
-                    - **Custom Expression 2** (Magenta): Direct z(β) expression
-                    """)
-                if show_derivatives:
-                    st.markdown("""
-                    Derivatives are shown as:
-                    - Dashed lines: First derivatives (d/dβ)
-                    - Dotted lines: Second derivatives (d²/dβ²)
-                    """)
+                
+                # Curve explanations in collapsed expander
+                with st.expander("Curve Explanations", expanded=False):
+                    if use_eigenvalue_method:
+                        st.markdown("""
+                        - **Upper/Lower Bounds** (Blue): Maximum/minimum eigenvalues of B_n = S_n T_n
+                        - **Shaded Region**: Eigenvalue support region
+                        - **High y Expression** (Green): Asymptotic approximation for high y values
+                        - **Low Expression** (Orange): Alternative asymptotic expression
+                        - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
+                        - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                        - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
+                        - **Custom Expression 2** (Magenta): Direct z(β) expression
+                        """)
+                    else:
+                        st.markdown("""
+                        - **Upper z*(β)** (Blue): Maximum z value where discriminant is zero
+                        - **Lower z*(β)** (Light Blue): Minimum z value where discriminant is zero
+                        - **High y Expression** (Green): Asymptotic approximation for high y values
+                        - **Low Expression** (Orange): Alternative asymptotic expression
+                        - **Max k Expression** (Red): $\\max_{k \\in (0,\\infty)} \\frac{y\\beta (a-1)k + \\bigl(ak+1\\bigr)\\bigl((y-1)k-1\\bigr)}{(ak+1)(k^2+k)}$
+                        - **Min t Expression** (Orange): $\\min_{t \\in \\left(-\\frac{1}{a},\\, 0\\right)} \\frac{y\\beta (a-1)t + \\bigl(at+1\\bigr)\\bigl((y-1)t-1\\bigr)}{(at+1)(t^2+t)}$
+                        - **Custom Expression 1** (Purple): Result from user-defined s substituted into the main formula
+                        - **Custom Expression 2** (Magenta): Direct z(β) expression
+                        """)
+                    if show_derivatives:
+                        st.markdown("""
+                        Derivatives are shown as:
+                        - Dashed lines: First derivatives (d/dβ)
+                        - Dotted lines: Second derivatives (d²/dβ²)
+                        """)
 
 # ----- Tab 2: Im{s} vs. z -----
 with tab2:
@@ -657,7 +691,7 @@ with tab2:
         z_a_2 = st.number_input("z_a", value=1.0, key="z_a_tab2")
         z_min_2 = st.number_input("z_min", value=-10.0, key="z_min_tab2")
         z_max_2 = st.number_input("z_max", value=10.0, key="z_max_tab2")
-        with st.expander("Resolution Settings"):
+        with st.expander("Resolution Settings", expanded=False):
             z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points")
     if st.button("Compute Complex Roots vs. z", key="tab2_button"):
         with col2:
@@ -671,12 +705,13 @@ with tab2:
     
     # Add eigenvalue distribution section
     st.header("Eigenvalue Distribution for B_n = S_n T_n")
-    st.markdown("""
-    This simulation generates the eigenvalue distribution of B_n as n→∞, where:
-    - B_n = (1/n)XX* with X being a p×n matrix
-    - p/n → y as n→∞
-    - All elements of X are i.i.d with distribution β·δ(z_a) + (1-β)·δ(1)
-    """)
+    with st.expander("Simulation Information", expanded=False):
+        st.markdown("""
+        This simulation generates the eigenvalue distribution of B_n as n→∞, where:
+        - B_n = (1/n)XX* with X being a p×n matrix
+        - p/n → y as n→∞
+        - All elements of X are i.i.d with distribution β·δ(z_a) + (1-β)·δ(1)
+        """)
     
     col_eigen1, col_eigen2 = st.columns([1, 2])
     with col_eigen1:
@@ -692,7 +727,9 @@ with tab2:
 # ----- Tab 3: Differential Analysis -----
 with tab3:
     st.header("Differential Analysis vs. β")
-    st.markdown("This page shows the difference between the Upper (blue) and Lower (lightblue) z*(β) curves, along with their first and second derivatives with respect to β.")
+    with st.expander("Description", expanded=False):
+        st.markdown("This page shows the difference between the Upper (blue) and Lower (lightblue) z*(β) curves, along with their first and second derivatives with respect to β.")
+    
     col1, col2 = st.columns([1, 2])
     with col1:
         z_a_diff = st.number_input("z_a", value=1.0, key="z_a_diff")
@@ -707,7 +744,7 @@ with tab3:
             key="diff_method_type"
         )
         
-        with st.expander("Resolution Settings"):
+        with st.expander("Resolution Settings", expanded=False):
             if diff_method_type == "Eigenvalue Method":
                 beta_steps_diff = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
                                          key="beta_steps_diff_eigen")
@@ -795,9 +832,9 @@ with tab3:
             )
             st.plotly_chart(fig_diff, use_container_width=True)
             
-            st.markdown("""
-            ### Curve Types
-            - Solid lines: Original curves
-            - Dashed lines: First derivatives (d/dβ)
-            - Dotted lines: Second derivatives (d²/dβ²)
-            """)
+            with st.expander("Curve Types", expanded=False):
+                st.markdown("""
+                - Solid lines: Original curves
+                - Dashed lines: First derivatives (d/dβ)
+                - Dotted lines: Second derivatives (d²/dβ²)
+                """)
