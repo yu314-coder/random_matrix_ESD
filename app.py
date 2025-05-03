@@ -490,54 +490,177 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
 def compute_cubic_roots(z, beta, z_a, y):
     """
-    Compute the roots of the cubic equation for given parameters.
+    Compute the roots of the cubic equation for given parameters with improved accuracy.
     """
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
+    # Coefficients in the form as^3 + bs^2 + cs + d = 0
     a = z * z_a
     b = z * z_a + z + z_a - z_a*y_effective
     c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
     d = 1
-    coeffs = [a, b, c, d]
-    roots = np.roots(coeffs)
+    
+    # Special handling for small leading coefficient
+    if abs(a) < 1e-10:
+        if abs(b) < 1e-10:  # Linear case
+            roots = np.array([-d/c, 0, 0])
+        else:  # Quadratic case
+            quadratic_roots = np.roots([b, c, d])
+            roots = np.append(quadratic_roots, 0)
+    else:
+        # Use high-precision computation for the cubic
+        coeffs = [a, b, c, d]
+        roots = np.roots(coeffs)
+    
     return roots
+
+def track_roots_consistently(z_values, all_roots):
+    """
+    Ensure consistent tracking of roots across z values by minimizing discontinuity.
+    """
+    n_points = len(z_values)
+    n_roots = all_roots[0].shape[0]
+    tracked_roots = np.zeros((n_points, n_roots), dtype=complex)
+    tracked_roots[0] = all_roots[0]
+    
+    for i in range(1, n_points):
+        prev_roots = tracked_roots[i-1]
+        current_roots = all_roots[i]
+        
+        # For each current root, find the closest previous root
+        assignments = np.zeros(n_roots, dtype=int)
+        for j in range(n_roots):
+            distances = np.abs(current_roots - prev_roots[j])
+            best_match = np.argmin(distances)
+            
+            # If this best match is already assigned, compare distances
+            if best_match in assignments:
+                prev_idx = np.where(assignments == best_match)[0][0]
+                if distances[best_match] < np.abs(current_roots[best_match] - prev_roots[prev_idx]):
+                    # This root is a better match
+                    assignments[j] = best_match
+                    assignments[prev_idx] = -1  # Mark for reassignment
+            else:
+                assignments[j] = best_match
+        
+        # Handle unassigned roots
+        unassigned = np.where(assignments == -1)[0]
+        available = np.setdiff1d(np.arange(n_roots), assignments[assignments >= 0])
+        
+        for j, ua in enumerate(unassigned):
+            if j < len(available):
+                assignments[ua] = available[j]
+            else:
+                # Find the least bad assignment
+                all_distances = np.array([np.abs(current_roots[k] - prev_roots[ua]) for k in range(n_roots)])
+                assigned_indices = assignments[assignments >= 0]
+                mask = np.ones(n_roots, dtype=bool)
+                mask[assigned_indices] = False
+                if np.any(mask):
+                    assignments[ua] = np.where(mask)[0][0]
+        
+        # Reorder current roots based on assignments
+        reordered_roots = np.zeros_like(current_roots)
+        for j in range(n_roots):
+            if assignments[j] >= 0:
+                reordered_roots[j] = current_roots[assignments[j]]
+            else:
+                # Find any unassigned root
+                used = np.sort([assignments[k] for k in range(n_roots) if assignments[k] >= 0])
+                unused = np.setdiff1d(np.arange(n_roots), used)
+                if len(unused) > 0:
+                    reordered_roots[j] = current_roots[unused[0]]
+                    assignments[j] = unused[0]
+        
+        tracked_roots[i] = reordered_roots
+    
+    return tracked_roots
 
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. z plots.
+    Generate Im(s) and Re(s) vs. z plots with improved accuracy and tracking.
     """
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
-        return None, None
+        return None, None, None
 
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
     z_points = np.linspace(z_min, z_max, n_points)
-    ims, res = [], []
+    
+    # Collect all roots first
+    all_roots = []
     for z in z_points:
         roots = compute_cubic_roots(z, beta, z_a, y)
-        roots = sorted(roots, key=lambda x: abs(x.imag))
-        ims.append([root.imag for root in roots])
-        res.append([root.real for root in roots])
-    ims = np.array(ims)
-    res = np.array(res)
-
+        # Initial sorting to have some consistency
+        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
+        all_roots.append(roots)
+    
+    all_roots = np.array(all_roots)
+    
+    # Track roots consistently
+    tracked_roots = track_roots_consistently(z_points, all_roots)
+    
+    # Extract imaginary and real parts
+    ims = np.imag(tracked_roots)
+    res = np.real(tracked_roots)
+    
+    # Calculate discriminant for verification
+    discriminants = []
+    for z in z_points:
+        a = z * z_a
+        b = z * z_a + z + z_a - z_a*y_effective
+        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+        d = 1
+        
+        # Cubic discriminant: 18abcd - 27a²d² + b²c² - 2b³d - 9ac³
+        disc = (18*a*b*c*d - 27*a*a*d*d + b*b*c*c - 2*b*b*b*d - 9*a*c*c*c)
+        discriminants.append(disc)
+    
+    discriminants = np.array(discriminants)
+    
+    # Create figure for imaginary parts
     fig_im = go.Figure()
     for i in range(3):
         fig_im.add_trace(go.Scatter(x=z_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}",
                                     line=dict(width=2)))
+    
+    # Add vertical lines at discriminant zero crossings
+    disc_zeros = []
+    for i in range(len(discriminants)-1):
+        if discriminants[i] * discriminants[i+1] <= 0:  # Sign change
+            zero_pos = z_points[i] + (z_points[i+1] - z_points[i]) * (0 - discriminants[i]) / (discriminants[i+1] - discriminants[i])
+            disc_zeros.append(zero_pos)
+            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    
     fig_im.update_layout(title=f"Im{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
                          xaxis_title="z", yaxis_title="Im{s}", hovermode="x unified")
 
+    # Create figure for real parts
     fig_re = go.Figure()
     for i in range(3):
         fig_re.add_trace(go.Scatter(x=z_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}",
                                     line=dict(width=2)))
+    
+    # Add vertical lines at discriminant zero crossings
+    for zero_pos in disc_zeros:
+        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    
     fig_re.update_layout(title=f"Re{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
                          xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
-    return fig_im, fig_re
+    
+    # Create discriminant plot
+    fig_disc = go.Figure()
+    fig_disc.add_trace(go.Scatter(x=z_points, y=discriminants, mode="lines", 
+                                 name="Cubic Discriminant", line=dict(color="black", width=2)))
+    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
+    
+    fig_disc.update_layout(title=f"Cubic Discriminant vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                          xaxis_title="z", yaxis_title="Discriminant", hovermode="x unified")
+    
+    return fig_im, fig_re, fig_disc
 
 def analyze_complex_root_structure(beta_values, z, z_a, y):
     """
@@ -579,7 +702,7 @@ def analyze_complex_root_structure(beta_values, z, z_a, y):
 
 def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. β plots.
+    Generate Im(s) and Re(s) vs. β plots with improved accuracy.
     """
     if z_a <= 0 or y <= 0 or beta_min >= beta_max:
         st.error("Invalid input parameters.")
@@ -589,139 +712,78 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     y_effective = y if y > 1 else 1/y
     
     beta_points = np.linspace(beta_min, beta_max, n_points)
-    ims, res = [], []
+    
+    # Collect all roots first
+    all_roots = []
     for beta in beta_points:
         roots = compute_cubic_roots(z, beta, z_a, y)
-        roots = sorted(roots, key=lambda x: abs(x.imag))
-        ims.append([root.imag for root in roots])
-        res.append([root.real for root in roots])
-    ims = np.array(ims)
-    res = np.array(res)
-
-    # Find transition points in root structure
-    transition_points, structure_types = analyze_complex_root_structure(beta_points, z, z_a, y)
+        # Initial sorting to have some consistency
+        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
+        all_roots.append(roots)
     
-    # Create traces for imaginary parts
-    fig_im = go.Figure()
-    for i in range(3):
-        fig_im.add_trace(go.Scatter(x=beta_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}",
-                                    line=dict(width=2)))
+    all_roots = np.array(all_roots)
     
-    # Add vertical lines at transition points
-    for beta in transition_points:
-        fig_im.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
-        
-    fig_im.update_layout(title=f"Im{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="β", yaxis_title="Im{s}", hovermode="x unified")
-
-    # Create traces for real parts
-    fig_re = go.Figure()
-    for i in range(3):
-        fig_re.add_trace(go.Scatter(x=beta_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}",
-                                    line=dict(width=2)))
+    # Track roots consistently
+    tracked_roots = track_roots_consistently(beta_points, all_roots)
     
-    # Add vertical lines at transition points
-    for beta in transition_points:
-        fig_re.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
-        
-    fig_re.update_layout(title=f"Re{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="β", yaxis_title="Re{s}", hovermode="x unified")
+    # Extract imaginary and real parts
+    ims = np.imag(tracked_roots)
+    res = np.real(tracked_roots)
     
-    # Create a plot showing the discriminant
-    fig_disc = go.Figure()
-    
-    # Calculate discriminant as a function of beta
-    discriminant_values = []
+    # Calculate discriminant for verification
+    discriminants = []
     for beta in beta_points:
-        # For cubic ax^3 + bx^2 + cx + d, the discriminant is:
-        # Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
-        
         a = z * z_a
         b = z * z_a + z + z_a - z_a*y_effective
         c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
         d = 1
         
-        delta0 = b*b - 3*a*c
-        delta1 = 2*b*b*b - 9*a*b*c + 27*a*a*d
-        discriminant = delta1*delta1 - 4*delta0*delta0*delta0
-        
-        discriminant_values.append(discriminant)
+        # Cubic discriminant
+        disc = (18*a*b*c*d - 27*a*a*d*d + b*b*c*c - 2*b*b*b*d - 9*a*c*c*c)
+        discriminants.append(disc)
     
-    fig_disc.add_trace(go.Scatter(x=beta_points, y=discriminant_values, mode="lines",
-                                  name="Discriminant", line=dict(width=2, color="black")))
+    discriminants = np.array(discriminants)
     
-    # Add horizontal line at y=0
+    # Create figure for imaginary parts
+    fig_im = go.Figure()
+    for i in range(3):
+        fig_im.add_trace(go.Scatter(x=beta_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}",
+                                    line=dict(width=2)))
+    
+    # Add vertical lines at discriminant zero crossings
+    disc_zeros = []
+    for i in range(len(discriminants)-1):
+        if discriminants[i] * discriminants[i+1] <= 0:  # Sign change
+            zero_pos = beta_points[i] + (beta_points[i+1] - beta_points[i]) * (0 - discriminants[i]) / (discriminants[i+1] - discriminants[i])
+            disc_zeros.append(zero_pos)
+            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    
+    fig_im.update_layout(title=f"Im{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Im{s}", hovermode="x unified")
+
+    # Create figure for real parts
+    fig_re = go.Figure()
+    for i in range(3):
+        fig_re.add_trace(go.Scatter(x=beta_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}",
+                                    line=dict(width=2)))
+    
+    # Add vertical lines at discriminant zero crossings
+    for zero_pos in disc_zeros:
+        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    
+    fig_re.update_layout(title=f"Re{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Re{s}", hovermode="x unified")
+    
+    # Create discriminant plot
+    fig_disc = go.Figure()
+    fig_disc.add_trace(go.Scatter(x=beta_points, y=discriminants, mode="lines", 
+                                 name="Cubic Discriminant", line=dict(color="black", width=2)))
     fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
     
-    # Add vertical lines at transition points
-    for beta in transition_points:
-        fig_disc.add_vline(x=beta, line=dict(color="red", width=1, dash="dash"))
-    
     fig_disc.update_layout(title=f"Cubic Discriminant vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                           xaxis_title="β", yaxis_title="Discriminant", hovermode="x unified")
+                          xaxis_title="β", yaxis_title="Discriminant", hovermode="x unified")
     
     return fig_im, fig_re, fig_disc
-
-@st.cache_data
-def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
-    """
-    Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
-    """
-    # Apply the condition for y
-    y_effective = y if y > 1 else 1/y
-    
-    # Set random seed
-    np.random.seed(seed)
-    
-    # Compute dimension p based on aspect ratio y
-    p = int(y_effective * n)
-    
-    # Constructing T_n (Population / Shape Matrix) - using the approach from the second script
-    k = int(np.floor(beta * p))
-    diag_entries = np.concatenate([
-        np.full(k, z_a),
-        np.full(p - k, 1.0)
-    ])
-    np.random.shuffle(diag_entries)
-    T_n = np.diag(diag_entries)
-    
-    # Generate the data matrix X with i.i.d. standard normal entries
-    X = np.random.randn(p, n)
-    
-    # Compute the sample covariance matrix S_n = (1/n) * XX^T
-    S_n = (1 / n) * (X @ X.T)
-    
-    # Compute B_n = S_n T_n
-    B_n = S_n @ T_n
-    
-    # Compute eigenvalues of B_n
-    eigenvalues = np.linalg.eigvalsh(B_n)
-    
-    # Use KDE to compute a smooth density estimate
-    kde = gaussian_kde(eigenvalues)
-    x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
-    kde_vals = kde(x_vals)
-    
-    # Create figure
-    fig = go.Figure()
-    
-    # Add histogram trace
-    fig.add_trace(go.Histogram(x=eigenvalues, histnorm='probability density', 
-                              name="Histogram", marker=dict(color='blue', opacity=0.6)))
-    
-    # Add KDE trace
-    fig.add_trace(go.Scatter(x=x_vals, y=kde_vals, mode="lines", 
-                            name="KDE", line=dict(color='red', width=2)))
-    
-    fig.update_layout(
-        title=f"Eigenvalue Distribution for B_n = S_n T_n (y={y:.1f}, β={beta:.2f}, a={z_a:.1f})",
-        xaxis_title="Eigenvalue",
-        yaxis_title="Density",
-        hovermode="closest",
-        showlegend=True
-    )
-    
-    return fig, eigenvalues
 
 def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_max=10.0, 
                           beta_steps=100, z_steps=100):
@@ -786,6 +848,67 @@ def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_ma
     )
     
     return fig
+
+@st.cache_data
+def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
+    """
+    Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    # Set random seed
+    np.random.seed(seed)
+    
+    # Compute dimension p based on aspect ratio y
+    p = int(y_effective * n)
+    
+    # Constructing T_n (Population / Shape Matrix) - using the approach from the second script
+    k = int(np.floor(beta * p))
+    diag_entries = np.concatenate([
+        np.full(k, z_a),
+        np.full(p - k, 1.0)
+    ])
+    np.random.shuffle(diag_entries)
+    T_n = np.diag(diag_entries)
+    
+    # Generate the data matrix X with i.i.d. standard normal entries
+    X = np.random.randn(p, n)
+    
+    # Compute the sample covariance matrix S_n = (1/n) * XX^T
+    S_n = (1 / n) * (X @ X.T)
+    
+    # Compute B_n = S_n T_n
+    B_n = S_n @ T_n
+    
+    # Compute eigenvalues of B_n
+    eigenvalues = np.linalg.eigvalsh(B_n)
+    
+    # Use KDE to compute a smooth density estimate
+    kde = gaussian_kde(eigenvalues)
+    x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
+    kde_vals = kde(x_vals)
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add histogram trace
+    fig.add_trace(go.Histogram(x=eigenvalues, histnorm='probability density', 
+                              name="Histogram", marker=dict(color='blue', opacity=0.6)))
+    
+    # Add KDE trace
+    fig.add_trace(go.Scatter(x=x_vals, y=kde_vals, mode="lines", 
+                            name="KDE", line=dict(color='red', width=2)))
+    
+    fig.update_layout(
+        title=f"Eigenvalue Distribution for B_n = S_n T_n (y={y:.1f}, β={beta:.2f}, a={z_a:.1f})",
+        xaxis_title="Eigenvalue",
+        yaxis_title="Density",
+        hovermode="closest",
+        showlegend=True
+    )
+    
+    return fig, eigenvalues
 
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis")
@@ -925,13 +1048,29 @@ with tab2:
             z_min_z = st.number_input("z_min", value=-10.0, key="z_min_tab2_z")
             z_max_z = st.number_input("z_max", value=10.0, key="z_max_tab2_z")
             with st.expander("Resolution Settings", expanded=False):
-                z_points = st.slider("z grid points", min_value=1000, max_value=10000, value=5000, step=500, key="z_points_z")
+                z_points = st.slider("z grid points", min_value=100, max_value=2000, value=500, step=100, key="z_points_z")
         if st.button("Compute Complex Roots vs. z", key="tab2_button_z"):
             with col2:
-                fig_im, fig_re = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
-                if fig_im is not None and fig_re is not None:
+                fig_im, fig_re, fig_disc = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
+                if fig_im is not None and fig_re is not None and fig_disc is not None:
                     st.plotly_chart(fig_im, use_container_width=True)
                     st.plotly_chart(fig_re, use_container_width=True)
+                    st.plotly_chart(fig_disc, use_container_width=True)
+                    
+                    with st.expander("Root Structure Analysis", expanded=False):
+                        st.markdown("""
+                        ### Root Structure Explanation
+                        
+                        The red dashed vertical lines mark the points where the cubic discriminant equals zero.
+                        At these points, the cubic equation's root structure changes:
+                        
+                        - When the discriminant is positive, the cubic has three distinct real roots.
+                        - When the discriminant is negative, the cubic has one real root and two complex conjugate roots.
+                        - When the discriminant is exactly zero, the cubic has at least two equal roots.
+                        
+                        These transition points align perfectly with the z*(β) boundary curves from the first tab,
+                        which represent exactly these transitions in the (β,z) plane.
+                        """)
 
     # New tab for Im{s} vs. β plot
     with plot_tabs[1]:
