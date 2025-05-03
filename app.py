@@ -96,7 +96,9 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
     Compute the support boundaries of the eigenvalue distribution by directly
     finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
     """
-    y_effective =y
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
     min_eigenvalues = np.zeros_like(beta_values)
     max_eigenvalues = np.zeros_like(beta_values)
     
@@ -137,10 +139,10 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
             S_n = (1 / n) * (X @ X.T)
             
             # Compute B_n = S_n T_n
-            B_n = S_n @ T_n /y_effective
+            B_n = S_n @ T_n
             
             # Compute eigenvalues of B_n
-            eigenvalues = np.linalg.eigvalsh(B_n) 
+            eigenvalues = np.linalg.eigvalsh(B_n)
             
             # Find minimum and maximum eigenvalues
             min_vals.append(np.min(eigenvalues))
@@ -270,10 +272,12 @@ def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, al
         derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
     
     # High y Expression
-    derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
+    if high_y_curve is not None:
+        derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
     
     # Alternate Low Expression
-    derivatives['alt_low'] = compute_derivatives(alt_low_expr, betas)
+    if alt_low_expr is not None:
+        derivatives['alt_low'] = compute_derivatives(alt_low_expr, betas)
     
     # Custom Expression 1 (if provided)
     if custom_curve1 is not None:
@@ -330,6 +334,10 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                           s_num_expr=None, s_denom_expr=None, 
                           z_num_expr=None, z_denom_expr=None,
                           show_derivatives=False,
+                          show_high_y=False,
+                          show_low_y=False,
+                          show_max_k=True,
+                          show_min_t=True,
                           use_eigenvalue_method=True,
                           n_samples=1000,
                           seeds=5):
@@ -348,12 +356,12 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         # Use the original discriminant method
         betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
         
-    high_y_curve = compute_high_y_curve(betas, z_a, y)
-    alt_low_expr = compute_alternate_low_expr(betas, z_a, y)
+    high_y_curve = compute_high_y_curve(betas, z_a, y) if show_high_y else None
+    alt_low_expr = compute_alternate_low_expr(betas, z_a, y) if show_low_y else None
     
     # Compute the max/min expressions
-    max_k_curve = compute_max_k_expression(betas, z_a, y)
-    min_t_curve = compute_min_t_expression(betas, z_a, y)
+    max_k_curve = compute_max_k_expression(betas, z_a, y) if show_max_k else None
+    min_t_curve = compute_min_t_expression(betas, z_a, y) if show_min_t else None
     
     # Compute both custom curves
     custom_curve1 = None
@@ -367,9 +375,11 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
     if show_derivatives:
         derivatives = compute_all_derivatives(betas, z_mins, z_maxs, None, high_y_curve, 
                                            alt_low_expr, custom_curve1, custom_curve2)
-        # Calculate derivatives for max_k and min_t curves
-        max_k_derivatives = compute_derivatives(max_k_curve, betas)
-        min_t_derivatives = compute_derivatives(min_t_curve, betas)
+        # Calculate derivatives for max_k and min_t curves if they exist
+        if show_max_k:
+            max_k_derivatives = compute_derivatives(max_k_curve, betas)
+        if show_min_t:
+            min_t_derivatives = compute_derivatives(min_t_curve, betas)
 
     fig = go.Figure()
     
@@ -395,17 +405,24 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         fig.add_trace(go.Scatter(x=betas, y=z_mins, mode="markers+lines", 
                                 name="Lower z*(β)", line=dict(color='blue')))
 
-    # Removed the Low y Expression trace
-    fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
-                            name="High y Expression", line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
-                            name="Low Expression", line=dict(color='green')))
+    # Add High y Expression only if selected
+    if show_high_y and high_y_curve is not None:
+        fig.add_trace(go.Scatter(x=betas, y=high_y_curve, mode="markers+lines", 
+                                name="High y Expression", line=dict(color='green')))
     
-    # Add the new max/min curves
-    fig.add_trace(go.Scatter(x=betas, y=max_k_curve, mode="lines", 
-                            name="Max k Expression", line=dict(color='red', width=2)))
-    fig.add_trace(go.Scatter(x=betas, y=min_t_curve, mode="lines", 
-                            name="Min t Expression", line=dict(color='orange', width=2)))
+    # Add Low Expression only if selected
+    if show_low_y and alt_low_expr is not None:
+        fig.add_trace(go.Scatter(x=betas, y=alt_low_expr, mode="markers+lines", 
+                                name="Low Expression", line=dict(color='green')))
+    
+    # Add the max/min curves if selected
+    if show_max_k and max_k_curve is not None:
+        fig.add_trace(go.Scatter(x=betas, y=max_k_curve, mode="lines", 
+                                name="Max k Expression", line=dict(color='red', width=2)))
+    
+    if show_min_t and min_t_curve is not None:
+        fig.add_trace(go.Scatter(x=betas, y=min_t_curve, mode="lines", 
+                                name="Min t Expression", line=dict(color='orange', width=2)))
     
     if custom_curve1 is not None:
         fig.add_trace(go.Scatter(x=betas, y=custom_curve1, mode="markers+lines", 
@@ -419,10 +436,12 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
         curve_info = [
             ('upper', 'Upper Bound' if use_eigenvalue_method else 'Upper z*(β)', 'blue'),
             ('lower', 'Lower Bound' if use_eigenvalue_method else 'Lower z*(β)', 'lightblue'),
-            # Removed low_y curve
-            ('high_y', 'High y', 'green'),
-            ('alt_low', 'Alt Low', 'orange')
         ]
+        
+        if show_high_y and high_y_curve is not None:
+            curve_info.append(('high_y', 'High y', 'green'))
+        if show_low_y and alt_low_expr is not None:
+            curve_info.append(('alt_low', 'Alt Low', 'orange'))
         
         if custom_curve1 is not None:
             curve_info.append(('custom1', 'Custom 1', 'purple'))
@@ -430,20 +449,24 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
             curve_info.append(('custom2', 'Custom 2', 'magenta'))
 
         for key, name, color in curve_info:
-            fig.add_trace(go.Scatter(x=betas, y=derivatives[key][0], mode="lines", 
-                                    name=f"{name} d/dβ", line=dict(color=color, dash='dash')))
-            fig.add_trace(go.Scatter(x=betas, y=derivatives[key][1], mode="lines", 
-                                    name=f"{name} d²/dβ²", line=dict(color=color, dash='dot')))
+            if key in derivatives:
+                fig.add_trace(go.Scatter(x=betas, y=derivatives[key][0], mode="lines", 
+                                        name=f"{name} d/dβ", line=dict(color=color, dash='dash')))
+                fig.add_trace(go.Scatter(x=betas, y=derivatives[key][1], mode="lines", 
+                                        name=f"{name} d²/dβ²", line=dict(color=color, dash='dot')))
         
-        # Add derivatives for max_k and min_t curves
-        fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[0], mode="lines", 
-                                name="Max k d/dβ", line=dict(color='red', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[1], mode="lines", 
-                                name="Max k d²/dβ²", line=dict(color='red', dash='dot')))
-        fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[0], mode="lines", 
-                                name="Min t d/dβ", line=dict(color='orange', dash='dash')))
-        fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[1], mode="lines", 
-                                name="Min t d²/dβ²", line=dict(color='orange', dash='dot')))
+        # Add derivatives for max_k and min_t curves if they exist
+        if show_max_k and max_k_curve is not None:
+            fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[0], mode="lines", 
+                                    name="Max k d/dβ", line=dict(color='red', dash='dash')))
+            fig.add_trace(go.Scatter(x=betas, y=max_k_derivatives[1], mode="lines", 
+                                    name="Max k d²/dβ²", line=dict(color='red', dash='dot')))
+        
+        if show_min_t and min_t_curve is not None:
+            fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[0], mode="lines", 
+                                    name="Min t d/dβ", line=dict(color='orange', dash='dash')))
+            fig.add_trace(go.Scatter(x=betas, y=min_t_derivatives[1], mode="lines", 
+                                    name="Min t d²/dβ²", line=dict(color='orange', dash='dot')))
 
     fig.update_layout(
         title="Curves vs β: Eigenvalue Support Boundaries and Asymptotic Expressions" if use_eigenvalue_method 
@@ -601,9 +624,9 @@ with tab1:
     # Advanced settings in collapsed expanders
     with st.expander("Method Settings", expanded=False):
         if method_type == "Eigenvalue Method":
-            beta_steps = st.slider("β steps", min_value=21, max_value=10001, value=51, step=10, 
+            beta_steps = st.slider("β steps", min_value=21, max_value=101, value=51, step=10, 
                                   key="beta_steps_eigen")
-            n_samples = st.slider("Matrix size (n)", min_value=100, max_value=200000, value=1000, 
+            n_samples = st.slider("Matrix size (n)", min_value=100, max_value=2000, value=1000, 
                                 step=100)
             seeds = st.slider("Number of seeds", min_value=1, max_value=10, value=5, step=1)
         else:
@@ -611,6 +634,16 @@ with tab1:
                                   key="beta_steps")
             z_steps = st.slider("z grid steps", min_value=1000, max_value=100000, value=50000, 
                               step=1000, key="z_steps")
+    
+    # Curve visibility options
+    with st.expander("Curve Visibility", expanded=False):
+        col_vis1, col_vis2 = st.columns(2)
+        with col_vis1:
+            show_high_y = st.checkbox("Show High y Expression", value=False, key="show_high_y")
+            show_max_k = st.checkbox("Show Max k Expression", value=True, key="show_max_k")
+        with col_vis2:
+            show_low_y = st.checkbox("Show Low y Expression", value=False, key="show_low_y")
+            show_min_t = st.checkbox("Show Min t Expression", value=True, key="show_min_t")
     
     # Custom expressions collapsed by default
     with st.expander("Custom Expression 1 (s-based)", expanded=False):
@@ -637,12 +670,14 @@ with tab1:
             use_eigenvalue_method = (method_type == "Eigenvalue Method")
             if use_eigenvalue_method:
                 fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, None,
-                                            s_num, s_denom, z_num, z_denom, show_derivatives,
+                                            s_num, s_denom, z_num, z_denom, show_derivatives, 
+                                            show_high_y, show_low_y, show_max_k, show_min_t,
                                             use_eigenvalue_method=True, n_samples=n_samples, 
                                             seeds=seeds)
             else:
                 fig = generate_z_vs_beta_plot(z_a_1, y_1, z_min_1, z_max_1, beta_steps, z_steps,
                                             s_num, s_denom, z_num, z_denom, show_derivatives,
+                                            show_high_y, show_low_y, show_max_k, show_min_t,
                                             use_eigenvalue_method=False)
             
             if fig is not None:
