@@ -1,9 +1,9 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
-#include <pybind11/complex.h>
+#include <pybind11/eigen.h>
+#include <Eigen/Dense>
 #include <vector>
-#include <complex>
 #include <cmath>
 #include <algorithm>
 #include <random>
@@ -28,6 +28,198 @@ double discriminant_func(double z, double beta, double z_a, double y) {
     // Simple formula for cubic discriminant
     return std::pow((b*c)/(6.0*a*a) - std::pow(b, 3)/(27.0*std::pow(a, 3)) - d/(2.0*a), 2) +
            std::pow(c/(3.0*a) - std::pow(b, 2)/(9.0*std::pow(a, 2)), 3);
+}
+
+// Function to compute the theoretical max value
+double compute_theoretical_max(double a, double y, double beta) {
+    auto f = [a, y, beta](double k) -> double {
+        return (y * beta * (a - 1) * k + (a * k + 1) * ((y - 1) * k - 1)) / 
+               ((a * k + 1) * (k * k + k) * y);
+    };
+    
+    // Use numerical optimization to find the maximum
+    // Grid search followed by golden section search
+    double best_k = 1.0;
+    double best_val = f(best_k);
+    
+    // Initial grid search over a wide range
+    const int num_grid_points = 200;
+    for (int i = 0; i < num_grid_points; ++i) {
+        double k = 0.01 + 100.0 * i / (num_grid_points - 1); // From 0.01 to 100
+        double val = f(k);
+        if (val > best_val) {
+            best_val = val;
+            best_k = k;
+        }
+    }
+    
+    // Refine with golden section search
+    double a_gs = std::max(0.01, best_k / 10.0);
+    double b_gs = best_k * 10.0;
+    const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
+    const double tolerance = 1e-10;
+    
+    double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
+    double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
+    
+    while (std::abs(b_gs - a_gs) > tolerance) {
+        if (f(c_gs) > f(d_gs)) {
+            b_gs = d_gs;
+            d_gs = c_gs;
+            c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
+        } else {
+            a_gs = c_gs;
+            c_gs = d_gs;
+            d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
+        }
+    }
+    
+    return f((a_gs + b_gs) / 2.0);
+}
+
+// Function to compute the theoretical min value
+double compute_theoretical_min(double a, double y, double beta) {
+    auto f = [a, y, beta](double t) -> double {
+        return (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / 
+               ((a * t + 1) * (t * t + t) * y);
+    };
+    
+    // Use numerical optimization to find the minimum
+    // Grid search followed by golden section search
+    double best_t = -0.5 / a; // Midpoint of (-1/a, 0)
+    double best_val = f(best_t);
+    
+    // Initial grid search over the range (-1/a, 0)
+    const int num_grid_points = 200;
+    for (int i = 1; i < num_grid_points; ++i) {
+        // From slightly above -1/a to slightly below 0
+        double t = -0.999/a + 0.998/a * i / (num_grid_points - 1);
+        if (t >= 0 || t <= -1.0/a) continue; // Ensure t is in range (-1/a, 0)
+        
+        double val = f(t);
+        if (val < best_val) {
+            best_val = val;
+            best_t = t;
+        }
+    }
+    
+    // Refine with golden section search
+    double a_gs = -0.999/a; // Slightly above -1/a
+    double b_gs = -0.001/a; // Slightly below 0
+    const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
+    const double tolerance = 1e-10;
+    
+    double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
+    double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
+    
+    while (std::abs(b_gs - a_gs) > tolerance) {
+        if (f(c_gs) < f(d_gs)) {
+            b_gs = d_gs;
+            d_gs = c_gs;
+            c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
+        } else {
+            a_gs = c_gs;
+            c_gs = d_gs;
+            d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
+        }
+    }
+    
+    return f((a_gs + b_gs) / 2.0);
+}
+
+// Compute eigenvalues for a given beta value
+std::tuple<double, double> compute_eigenvalues_for_beta(double z_a, double y, double beta, int n, int seed) {
+    // Apply the condition for y
+    double y_effective = apply_y_condition(y);
+    
+    // Set random seed
+    std::mt19937 gen(seed);
+    std::normal_distribution<double> norm(0.0, 1.0);
+    
+    // Compute dimension p based on aspect ratio y
+    int p = static_cast<int>(y_effective * n);
+    
+    // Generate random matrix X
+    Eigen::MatrixXd X(p, n);
+    for (int i = 0; i < p; i++) {
+        for (int j = 0; j < n; j++) {
+            X(i, j) = norm(gen);
+        }
+    }
+    
+    // Compute sample covariance matrix S_n = (1/n) * X * X^T
+    Eigen::MatrixXd S_n = (X * X.transpose()) / static_cast<double>(n);
+    
+    // Build T_n diagonal matrix
+    int k = static_cast<int>(std::floor(beta * p));
+    std::vector<double> diags(p);
+    std::fill_n(diags.begin(), k, z_a);
+    std::fill_n(diags.begin() + k, p - k, 1.0);
+    
+    // Shuffle diagonal entries
+    std::shuffle(diags.begin(), diags.end(), gen);
+    
+    // Create T_n and its square root
+    Eigen::MatrixXd T_n = Eigen::MatrixXd::Zero(p, p);
+    Eigen::MatrixXd T_sqrt = Eigen::MatrixXd::Zero(p, p);
+    
+    for (int i = 0; i < p; i++) {
+        double v = diags[i];
+        T_n(i, i) = v;
+        T_sqrt(i, i) = std::sqrt(v);
+    }
+    
+    // Form B = T_sqrt * S_n * T_sqrt (symmetric)
+    Eigen::MatrixXd B = T_sqrt * S_n * T_sqrt;
+    
+    // Compute eigenvalues of B
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(B);
+    Eigen::VectorXd eigenvalues = solver.eigenvalues();
+    
+    // Return min and max eigenvalues
+    double min_eigenvalue = eigenvalues(0);
+    double max_eigenvalue = eigenvalues(p-1);
+    
+    return std::make_tuple(min_eigenvalue, max_eigenvalue);
+}
+
+// Compute eigenvalue support boundaries
+std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>
+compute_eigenvalue_support_boundaries(double z_a, double y, const std::vector<double>& beta_values, 
+                                    int n_samples, int seeds) {
+    size_t num_betas = beta_values.size();
+    std::vector<double> min_eigenvalues(num_betas, 0.0);
+    std::vector<double> max_eigenvalues(num_betas, 0.0);
+    std::vector<double> theoretical_min_values(num_betas, 0.0);
+    std::vector<double> theoretical_max_values(num_betas, 0.0);
+    
+    for (size_t i = 0; i < num_betas; i++) {
+        double beta = beta_values[i];
+        
+        // Calculate theoretical values
+        theoretical_max_values[i] = compute_theoretical_max(z_a, y, beta);
+        theoretical_min_values[i] = compute_theoretical_min(z_a, y, beta);
+        
+        std::vector<double> min_vals;
+        std::vector<double> max_vals;
+        
+        // Run multiple trials with different seeds
+        for (int seed = 0; seed < seeds; seed++) {
+            auto [min_eig, max_eig] = compute_eigenvalues_for_beta(z_a, y, beta, n_samples, seed);
+            min_vals.push_back(min_eig);
+            max_vals.push_back(max_eig);
+        }
+        
+        // Average over seeds
+        double min_sum = 0.0, max_sum = 0.0;
+        for (double val : min_vals) min_sum += val;
+        for (double val : max_vals) max_sum += val;
+        
+        min_eigenvalues[i] = min_vals.empty() ? 0.0 : min_sum / min_vals.size();
+        max_eigenvalues[i] = max_vals.empty() ? 0.0 : max_sum / max_vals.size();
+    }
+    
+    return std::make_tuple(min_eigenvalues, max_eigenvalues, theoretical_min_values, theoretical_max_values);
 }
 
 // Find zeros of discriminant
@@ -76,6 +268,7 @@ std::vector<double> find_z_at_discriminant_zero(double z_a, double y, double bet
                 }
                 if ((fm < 0 && f1_copy < 0) || (fm > 0 && f1_copy > 0)) {
                     zl = mid;
+                    f1_copy = fm;
                 } else {
                     zr = mid;
                 }
@@ -117,90 +310,6 @@ sweep_beta_and_find_z_bounds(double z_a, double y, double z_min, double z_max,
     return std::make_tuple(betas, z_min_values, z_max_values);
 }
 
-// Compute cubic roots
-std::vector<std::complex<double>> compute_cubic_roots(double z, double beta, double z_a, double y) {
-    double y_effective = apply_y_condition(y);
-    
-    // Coefficients
-    double a = z * z_a;
-    double b = z * z_a + z + z_a - z_a * y_effective;
-    double c = z + z_a + 1.0 - y_effective * (beta * z_a + 1.0 - beta);
-    double d = 1.0;
-    
-    std::vector<std::complex<double>> roots(3);
-    
-    // Handle special cases
-    if (std::abs(a) < 1e-10) {
-        if (std::abs(b) < 1e-10) {  // Linear case
-            roots[0] = std::complex<double>(-d/c, 0);
-            roots[1] = std::complex<double>(0, 0);
-            roots[2] = std::complex<double>(0, 0);
-        } else {  // Quadratic case
-            double disc = c*c - 4.0*b*d;
-            if (disc >= 0) {
-                double sqrt_disc = std::sqrt(disc);
-                roots[0] = std::complex<double>((-c + sqrt_disc) / (2.0 * b), 0);
-                roots[1] = std::complex<double>((-c - sqrt_disc) / (2.0 * b), 0);
-            } else {
-                double sqrt_disc = std::sqrt(-disc);
-                roots[0] = std::complex<double>(-c / (2.0 * b), sqrt_disc / (2.0 * b));
-                roots[1] = std::complex<double>(-c / (2.0 * b), -sqrt_disc / (2.0 * b));
-            }
-            roots[2] = std::complex<double>(0, 0);
-        }
-        return roots;
-    }
-    
-    // Normalize to form: x^3 + px^2 + qx + r = 0
-    double p = b / a;
-    double q = c / a;
-    double r = d / a;
-    
-    // Depress the cubic: substitute x = y - p/3 to get y^3 + py + q = 0
-    double p_over_3 = p / 3.0;
-    double new_p = q - p * p / 3.0;
-    double new_q = r - p * q / 3.0 + 2.0 * p * p * p / 27.0;
-    
-    // Calculate discriminant
-    double discriminant = 4.0 * std::pow(new_p, 3) / 27.0 + new_q * new_q;
-    
-    if (std::abs(discriminant) < 1e-10) {
-        // Three real roots, at least two are equal
-        double u;
-        if (std::abs(new_q) < 1e-10) {
-            u = 0;
-        } else {
-            u = std::cbrt(-new_q / 2.0);
-        }
-        roots[0] = std::complex<double>(2.0 * u - p_over_3, 0);
-        roots[1] = std::complex<double>(-u - p_over_3, 0);
-        roots[2] = std::complex<double>(-u - p_over_3, 0);
-    } else if (discriminant > 0) {
-        // One real root, two complex conjugate roots
-        double sqrt_disc = std::sqrt(discriminant);
-        double u = std::cbrt(-new_q / 2.0 + sqrt_disc / 2.0);
-        double v = std::cbrt(-new_q / 2.0 - sqrt_disc / 2.0);
-        
-        // Real root
-        roots[0] = std::complex<double>(u + v - p_over_3, 0);
-        
-        // Complex roots
-        const double sqrt3_over_2 = std::sqrt(3.0) / 2.0;
-        roots[1] = std::complex<double>(-0.5 * (u + v) - p_over_3, sqrt3_over_2 * (u - v));
-        roots[2] = std::complex<double>(-0.5 * (u + v) - p_over_3, -sqrt3_over_2 * (u - v));
-    } else {
-        // Three distinct real roots
-        double theta = std::acos(-new_q / 2.0 / std::sqrt(-std::pow(new_p, 3) / 27.0));
-        double sqrt_term = 2.0 * std::sqrt(-new_p / 3.0);
-        
-        roots[0] = std::complex<double>(sqrt_term * std::cos(theta / 3.0) - p_over_3, 0);
-        roots[1] = std::complex<double>(sqrt_term * std::cos((theta + 2.0 * M_PI) / 3.0) - p_over_3, 0);
-        roots[2] = std::complex<double>(sqrt_term * std::cos((theta + 4.0 * M_PI) / 3.0) - p_over_3, 0);
-    }
-    
-    return roots;
-}
-
 // Compute high y curve
 std::vector<double> compute_high_y_curve(const std::vector<double>& betas, double z_a, double y) {
     double y_effective = apply_y_condition(y);
@@ -239,103 +348,25 @@ std::vector<double> compute_alternate_low_expr(const std::vector<double>& betas,
     return result;
 }
 
-// Compute max k expression
-std::vector<double> compute_max_k_expression(const std::vector<double>& betas, double z_a, double y, int k_samples=1000) {
-    double y_effective = apply_y_condition(y);
+// Compute max k expression over a range of betas
+std::vector<double> compute_max_k_expression(const std::vector<double>& betas, double z_a, double y) {
     size_t n = betas.size();
     std::vector<double> result(n);
     
-    // Sample k values on logarithmic scale
-    std::vector<double> k_values(k_samples);
-    double log_min = std::log(0.001);
-    double log_max = std::log(1000.0);
-    double log_step = (log_max - log_min) / (k_samples - 1);
-    
-    for (int i = 0; i < k_samples; i++) {
-        k_values[i] = std::exp(log_min + i * log_step);
-    }
-    
     for (size_t i = 0; i < n; i++) {
-        double beta = betas[i];
-        std::vector<double> values(k_samples);
-        
-        for (int j = 0; j < k_samples; j++) {
-            double k = k_values[j];
-            double numerator = y_effective * beta * (z_a - 1.0) * k + (z_a * k + 1.0) * ((y_effective - 1.0) * k - 1.0);
-            double denominator = (z_a * k + 1.0) * (k * k + k);
-            
-            if (std::abs(denominator) < 1e-10) {
-                values[j] = std::numeric_limits<double>::quiet_NaN();
-            } else {
-                values[j] = numerator / denominator;
-            }
-        }
-        
-        // Find maximum value, ignoring NaNs
-        double max_val = -std::numeric_limits<double>::infinity();
-        bool found_valid = false;
-        
-        for (double val : values) {
-            if (!std::isnan(val) && val > max_val) {
-                max_val = val;
-                found_valid = true;
-            }
-        }
-        
-        result[i] = found_valid ? max_val : std::numeric_limits<double>::quiet_NaN();
+        result[i] = compute_theoretical_max(z_a, y, betas[i]);
     }
     
     return result;
 }
 
-// Compute min t expression
-std::vector<double> compute_min_t_expression(const std::vector<double>& betas, double z_a, double y, int t_samples=1000) {
-    double y_effective = apply_y_condition(y);
+// Compute min t expression over a range of betas
+std::vector<double> compute_min_t_expression(const std::vector<double>& betas, double z_a, double y) {
     size_t n = betas.size();
     std::vector<double> result(n);
     
-    if (z_a <= 0) {
-        std::fill(result.begin(), result.end(), std::numeric_limits<double>::quiet_NaN());
-        return result;
-    }
-    
-    // Sample t values in (-1/a, 0)
-    double lower_bound = -1.0 / z_a + 1e-10;  // Avoid division by zero
-    std::vector<double> t_values(t_samples);
-    double t_step = (0.0 - lower_bound) / (t_samples - 1);
-    
-    for (int i = 0; i < t_samples; i++) {
-        t_values[i] = lower_bound + i * t_step * (1.0 - 1e-10);  // Avoid exactly 0
-    }
-    
     for (size_t i = 0; i < n; i++) {
-        double beta = betas[i];
-        std::vector<double> values(t_samples);
-        
-        for (int j = 0; j < t_samples; j++) {
-            double t = t_values[j];
-            double numerator = y_effective * beta * (z_a - 1.0) * t + (z_a * t + 1.0) * ((y_effective - 1.0) * t - 1.0);
-            double denominator = (z_a * t + 1.0) * (t * t + t);
-            
-            if (std::abs(denominator) < 1e-10) {
-                values[j] = std::numeric_limits<double>::quiet_NaN();
-            } else {
-                values[j] = numerator / denominator;
-            }
-        }
-        
-        // Find minimum value, ignoring NaNs
-        double min_val = std::numeric_limits<double>::infinity();
-        bool found_valid = false;
-        
-        for (double val : values) {
-            if (!std::isnan(val) && val < min_val) {
-                min_val = val;
-                found_valid = true;
-            }
-        }
-        
-        result[i] = found_valid ? min_val : std::numeric_limits<double>::quiet_NaN();
+        result[i] = compute_theoretical_min(z_a, y, betas[i]);
     }
     
     return result;
@@ -375,114 +406,58 @@ compute_derivatives(const std::vector<double>& curve, const std::vector<double>&
     return std::make_tuple(d1, d2);
 }
 
-// Generate eigenvalue distribution
+// Generate eigenvalue distribution for a specific beta
 std::vector<double> generate_eigenvalue_distribution(double beta, double y, double z_a, int n, int seed) {
+    // Apply the condition for y
     double y_effective = apply_y_condition(y);
     
     // Set random seed
     std::mt19937 gen(seed);
-    std::normal_distribution<double> normal_dist(0.0, 1.0);
+    std::normal_distribution<double> norm(0.0, 1.0);
     
     // Compute dimension p based on aspect ratio y
     int p = static_cast<int>(y_effective * n);
     
-    // Create matrices - we'll use simple vectors and manual operations
-    // since we're trying to avoid dependency on Eigen
-    
-    // Diagonal of T_n (Population/Shape Matrix)
-    std::vector<double> diag_T(p);
-    int k = static_cast<int>(std::floor(beta * p));
-    
-    // Fill diagonal entries
-    for (int j = 0; j < k; j++) {
-        diag_T[j] = z_a;
-    }
-    for (int j = k; j < p; j++) {
-        diag_T[j] = 1.0;
-    }
-    
-    // Shuffle diagonal entries
-    std::shuffle(diag_T.begin(), diag_T.end(), gen);
-    
-    // Generate data matrix X
-    std::vector<std::vector<double>> X(p, std::vector<double>(n));
+    // Generate random matrix X
+    Eigen::MatrixXd X(p, n);
     for (int i = 0; i < p; i++) {
         for (int j = 0; j < n; j++) {
-            X[i][j] = normal_dist(gen);
+            X(i, j) = norm(gen);
         }
     }
     
-    // Compute S_n = (1/n) * X*X^T
-    std::vector<std::vector<double>> S(p, std::vector<double>(p, 0.0));
+    // Compute sample covariance matrix S_n = (1/n) * X * X^T
+    Eigen::MatrixXd S_n = (X * X.transpose()) / static_cast<double>(n);
+    
+    // Build T_n diagonal matrix
+    int k = static_cast<int>(std::floor(beta * p));
+    std::vector<double> diags(p);
+    std::fill_n(diags.begin(), k, z_a);
+    std::fill_n(diags.begin() + k, p - k, 1.0);
+    
+    // Shuffle diagonal entries
+    std::shuffle(diags.begin(), diags.end(), gen);
+    
+    // Create T_n
+    Eigen::MatrixXd T_n = Eigen::MatrixXd::Zero(p, p);
     for (int i = 0; i < p; i++) {
-        for (int j = 0; j < p; j++) {
-            double sum = 0.0;
-            for (int k = 0; k < n; k++) {
-                sum += X[i][k] * X[j][k];
-            }
-            S[i][j] = sum / n;
-        }
+        T_n(i, i) = diags[i];
     }
     
-    // Compute B_n = S_n * diag(T_n)
-    std::vector<std::vector<double>> B(p, std::vector<double>(p, 0.0));
-    for (int i = 0; i < p; i++) {
-        for (int j = 0; j < p; j++) {
-            B[i][j] = S[i][j] * diag_T[j];
-        }
-    }
+    // Compute B_n = S_n * T_n
+    Eigen::MatrixXd B_n = S_n * T_n;
     
-    // Find eigenvalues - use power iteration for largest/smallest eigenvalues
-    // This is a simplified example and not recommended for production use
-    // For real applications, use a proper eigenvalue solver
+    // Compute eigenvalues
+    Eigen::EigenSolver<Eigen::MatrixXd> solver(B_n);
     
-    // For simplicity, we'll just return some random values
-    // In real application, you'd compute actual eigenvalues
+    // Extract and return real parts of eigenvalues
     std::vector<double> eigenvalues(p);
     for (int i = 0; i < p; i++) {
-        eigenvalues[i] = normal_dist(gen) + 1.0; // Dummy values
+        eigenvalues[i] = solver.eigenvalues()(i).real();
     }
     
     std::sort(eigenvalues.begin(), eigenvalues.end());
     return eigenvalues;
-}
-
-// Support boundaries
-std::tuple<std::vector<double>, std::vector<double>>
-compute_eigenvalue_support_boundaries(double z_a, double y, const std::vector<double>& beta_values,
-                                    int n_samples, int seeds) {
-    size_t num_betas = beta_values.size();
-    std::vector<double> min_eigenvalues(num_betas);
-    std::vector<double> max_eigenvalues(num_betas);
-    
-    for (size_t i = 0; i < num_betas; i++) {
-        double beta = beta_values[i];
-        
-        std::vector<double> min_vals;
-        std::vector<double> max_vals;
-        
-        // Run multiple trials
-        for (int seed = 0; seed < seeds; seed++) {
-            // Generate eigenvalues
-            std::vector<double> eigenvalues = generate_eigenvalue_distribution(beta, y, z_a, n_samples, seed);
-            
-            // Get min and max
-            if (!eigenvalues.empty()) {
-                min_vals.push_back(eigenvalues.front());
-                max_vals.push_back(eigenvalues.back());
-            }
-        }
-        
-        // Average over seeds
-        double min_sum = 0.0, max_sum = 0.0;
-        for (double val : min_vals) min_sum += val;
-        for (double val : max_vals) max_sum += val;
-        
-        min_eigenvalues[i] = min_vals.empty() ? 0.0 : min_sum / min_vals.size();
-        max_eigenvalues[i] = max_vals.empty() ? 0.0 : max_sum / max_vals.size();
-    }
-    
-    return std::make_tuple(min_eigenvalues, max_eigenvalues);
 }
 
 // Python module definition
@@ -503,9 +478,18 @@ PYBIND11_MODULE(cubic_cpp, m) {
           py::arg("z_a"), py::arg("y"), py::arg("z_min"), py::arg("z_max"), 
           py::arg("beta_steps"), py::arg("z_steps"));
     
-    m.def("compute_cubic_roots", &compute_cubic_roots,
-          "Compute roots of cubic equation",
-          py::arg("z"), py::arg("beta"), py::arg("z_a"), py::arg("y"));
+    m.def("compute_theoretical_max", &compute_theoretical_max,
+          "Compute theoretical maximum function value",
+          py::arg("a"), py::arg("y"), py::arg("beta"));
+          
+    m.def("compute_theoretical_min", &compute_theoretical_min,
+          "Compute theoretical minimum function value",
+          py::arg("a"), py::arg("y"), py::arg("beta"));
+    
+    m.def("compute_eigenvalue_support_boundaries", &compute_eigenvalue_support_boundaries,
+          "Compute empirical and theoretical eigenvalue support boundaries",
+          py::arg("z_a"), py::arg("y"), py::arg("beta_values"), 
+          py::arg("n_samples"), py::arg("seeds"));
     
     m.def("compute_high_y_curve", &compute_high_y_curve,
           "Compute high y expression curve",
@@ -516,23 +500,18 @@ PYBIND11_MODULE(cubic_cpp, m) {
           py::arg("betas"), py::arg("z_a"), py::arg("y"));
     
     m.def("compute_max_k_expression", &compute_max_k_expression,
-          "Compute max k expression",
-          py::arg("betas"), py::arg("z_a"), py::arg("y"), py::arg("k_samples") = 1000);
+          "Compute max k expression for multiple beta values",
+          py::arg("betas"), py::arg("z_a"), py::arg("y"));
     
     m.def("compute_min_t_expression", &compute_min_t_expression,
-          "Compute min t expression",
-          py::arg("betas"), py::arg("z_a"), py::arg("y"), py::arg("t_samples") = 1000);
+          "Compute min t expression for multiple beta values",
+          py::arg("betas"), py::arg("z_a"), py::arg("y"));
     
     m.def("compute_derivatives", &compute_derivatives,
           "Compute first and second derivatives",
           py::arg("curve"), py::arg("betas"));
           
     m.def("generate_eigenvalue_distribution", &generate_eigenvalue_distribution,
-          "Generate eigenvalue distribution",
+          "Generate eigenvalue distribution for a specific beta",
           py::arg("beta"), py::arg("y"), py::arg("z_a"), py::arg("n"), py::arg("seed"));
-          
-    m.def("compute_eigenvalue_support_boundaries", &compute_eigenvalue_support_boundaries,
-          "Compute eigenvalue support boundaries",
-          py::arg("z_a"), py::arg("y"), py::arg("beta_values"), 
-          py::arg("n_samples"), py::arg("seeds"));
 }
