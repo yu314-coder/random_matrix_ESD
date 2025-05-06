@@ -57,7 +57,7 @@ except ImportError as e:
         print(f"Extension suffix: {ext_suffix}")
         
         # Compile command
-        compile_cmd = f"""g++ -O3 -shared -std=c++11 -fPIC \
+        compile_cmd = f"""g++ -O3 -shared -std=c++17 -fPIC \
             $(python3-config --includes) \
             -I$(python3 -c "import pybind11; print(pybind11.get_include())") \
             -I$(python3 -c "import numpy; print(numpy.get_include())") \
