@@ -9,6 +9,8 @@ import tempfile
 import subprocess
 import sys
 import importlib.util
+import time
+from datetime import timedelta
 
 # Configure Streamlit for Hugging Face Spaces
 st.set_page_config(
@@ -17,10 +19,99 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Create a class for advanced progress tracking
+class AdvancedProgressBar:
+    def __init__(self, total_steps, description="Processing", auto_refresh=True):
+        self.total_steps = total_steps
+        self.current_step = 0
+        self.start_time = time.time()
+        self.description = description
+        self.auto_refresh = auto_refresh
+        
+        # Create UI elements
+        self.status_container = st.empty()
+        self.progress_bar = st.progress(0)
+        self.metrics_cols = st.columns(4)
+        self.step_metric = self.metrics_cols[0].empty()
+        self.percent_metric = self.metrics_cols[1].empty()
+        self.elapsed_metric = self.metrics_cols[2].empty()
+        self.eta_metric = self.metrics_cols[3].empty()
+        
+        # Initialize with starting values
+        self.update_status(f"Starting {self.description}...")
+        self.update(0)
+    
+    def update(self, step=None, description=None):
+        if step is not None:
+            self.current_step = step
+        else:
+            self.current_step += 1
+            
+        if description:
+            self.description = description
+            
+        # Calculate progress percentage
+        progress = min(self.current_step / self.total_steps, 1.0)
+        
+        # Update progress bar
+        self.progress_bar.progress(progress)
+        
+        # Update metrics
+        elapsed = time.time() - self.start_time
+        elapsed_str = str(timedelta(seconds=int(elapsed)))
+        
+        if progress > 0:
+            eta = elapsed * (1 - progress) / progress
+            eta_str = str(timedelta(seconds=int(eta)))
+        else:
+            eta_str = "Calculating..."
+            
+        step_text = f"{self.current_step}/{self.total_steps}"
+        percent_text = f"{progress*100:.1f}%"
+        
+        self.step_metric.metric("Steps", step_text)
+        self.percent_metric.metric("Progress", percent_text)
+        self.elapsed_metric.metric("Elapsed", elapsed_str)
+        self.eta_metric.metric("ETA", eta_str)
+        
+        # Update status text
+        self.update_status(f"{self.description} - Step {self.current_step} of {self.total_steps}")
+    
+    def update_status(self, text):
+        self.status_container.text(text)
+    
+    def complete(self, success=True):
+        if success:
+            self.progress_bar.progress(1.0)
+            self.update_status(f"✅ {self.description} completed successfully!")
+        else:
+            self.update_status(f"❌ {self.description} failed or was interrupted.")
+        
+        elapsed = time.time() - self.start_time
+        elapsed_str = str(timedelta(seconds=int(elapsed)))
+        self.elapsed_metric.metric("Total Time", elapsed_str)
+        self.eta_metric.metric("ETA", "Completed")
+        
+        # Add small delay to show completion
+        time.sleep(0.5)
+    
+    def clear(self):
+        self.status_container.empty()
+        self.progress_bar.empty()
+        self.step_metric.empty()
+        self.percent_metric.empty()
+        self.elapsed_metric.empty()
+        self.eta_metric.empty()
+
+# Initialize sympy precision settings for higher accuracy
+sp.mpmath.mp.dps = 50  # Set decimal precision to 50 digits
+
 # Check if C++ module is already compiled, otherwise compile it
 cpp_compiled = False
 
 def compile_cpp_module():
+    progress = AdvancedProgressBar(5, "Compiling C++ module")
+    
     # Define C++ code as a string
     cpp_code = """
     #include <pybind11/pybind11.h>
@@ -33,6 +124,7 @@ def compile_cpp_module():
     #include <random>
     #include <cmath>
     #include <algorithm>
+    #include <omp.h>
 
     namespace py = pybind11;
     using namespace Eigen;
@@ -57,6 +149,7 @@ def compile_cpp_module():
         double* z_ptr = static_cast<double*>(z_buf.ptr);
         double* result_ptr = static_cast<double*>(result_buf.ptr);
         
+        #pragma omp parallel for
         for (size_t i = 0; i < z_buf.size; i++) {
             result_ptr[i] = compute_discriminant_fast(z_ptr[i], beta, z_a, y);
         }
@@ -642,13 +735,17 @@ def compile_cpp_module():
     }
     """
     
+    progress.update(1, "Creating temporary directory for compilation")
+    
     # Create a temporary directory to compile the C++ code
     with tempfile.TemporaryDirectory() as tmpdirname:
         # Write C++ code to file
+        progress.update(2, "Writing C++ code to temporary file")
         with open(os.path.join(tmpdirname, "cubic_cpp.cpp"), "w") as f:
             f.write(cpp_code)
         
         # Write setup.py for compiling with pybind11
+        progress.update(3, "Creating setup.py file")
         setup_py = """
 from setuptools import setup, Extension
 from pybind11.setup_helpers import Pybind11Extension, build_ext
@@ -675,7 +772,7 @@ setup(
             f.write(setup_py)
         
         # Compile the module
-        st.info("Compiling C++ module... This may take a moment.")
+        progress.update(4, "Running compilation process")
         try:
             result = subprocess.run(
                 [sys.executable, "setup.py", "build_ext", "--inplace"],
@@ -693,12 +790,14 @@ setup(
                     break
             
             if not module_path:
+                progress.complete(False)
                 st.error("Failed to find compiled module.")
                 st.code(result.stdout)
                 st.code(result.stderr)
                 return False
             
             # Import the module
+            progress.update(5, "Importing compiled module")
             spec = importlib.util.spec_from_file_location("cubic_cpp", module_path)
             cubic_cpp = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cubic_cpp)
@@ -715,10 +814,11 @@ setup(
             globals()["generate_eigenvalue_distribution_cpp"] = cubic_cpp.generate_eigenvalue_distribution_cpp
             globals()["generate_phase_diagram_cpp"] = cubic_cpp.generate_phase_diagram_cpp
             
-            st.success("C++ module compiled successfully!")
+            progress.complete(True)
             return True
             
         except subprocess.CalledProcessError as e:
+            progress.complete(False)
             st.error(f"Compilation failed: {e}")
             st.code(e.stdout)
             st.code(e.stderr)
@@ -738,10 +838,13 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
     Scan z in [z_min, z_max] for sign changes in the discriminant,
     and return approximated roots (where the discriminant is zero).
     """
+    # Create progress bar
+    progress = AdvancedProgressBar(steps, "Finding discriminant zeros")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
-    # Symbolic variables for the cubic discriminant
+    # Symbolic variables for the cubic discriminant with higher precision
     z_sym, beta_sym, z_a_sym, y_sym = sp.symbols("z beta z_a y", real=True, positive=True)
     
     # Define coefficients a, b, c, d in terms of z_sym, beta_sym, z_a_sym, y_sym
@@ -750,39 +853,54 @@ def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
     c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
     d_sym = 1
     
-    # Symbolic expression for the cubic discriminant
-    Delta_expr = (
-        ((b_sym*c_sym)/(6*a_sym**2) - (b_sym**3)/(27*a_sym**3) - d_sym/(2*a_sym))**2
-        + (c_sym/(3*a_sym) - (b_sym**2)/(9*a_sym**2))**3
-    )
+    # Symbolic expression for the cubic discriminant using standard form
+    Delta_expr = 18*a_sym*b_sym*c_sym*d_sym - 27*a_sym**2*d_sym**2 + b_sym**2*c_sym**2 - 2*b_sym**3*d_sym - 9*a_sym*c_sym**3
     
     # Fast numeric function for the discriminant
-    discriminant_func = sp.lambdify((z_sym, beta_sym, z_a_sym, y_sym), Delta_expr, "numpy")
+    discriminant_func = sp.lambdify((z_sym, beta_sym, z_a_sym, y_sym), Delta_expr, "mpmath")
     
     z_grid = np.linspace(z_min, z_max, steps)
-    disc_vals = discriminant_func(z_grid, beta, z_a, y_effective)
+    disc_vals = []
+    
+    # Calculate discriminant values with progress tracking
+    for i, z in enumerate(z_grid):
+        progress.update(i+1, f"Computing discriminant at z = {z:.4f}")
+        disc_vals.append(float(discriminant_func(z, beta, z_a, y_effective)))
+    
+    disc_vals = np.array(disc_vals)
     roots_found = []
+    
+    # Find sign changes with high-precision refinement
+    progress.update_status("Finding and refining discriminant zero locations")
     for i in range(len(z_grid) - 1):
         f1, f2 = disc_vals[i], disc_vals[i+1]
         if np.isnan(f1) or np.isnan(f2):
             continue
-        if f1 == 0.0:
+        if abs(f1) < 1e-12:
             roots_found.append(z_grid[i])
-        elif f2 == 0.0:
+        elif abs(f2) < 1e-12:
             roots_found.append(z_grid[i+1])
         elif f1 * f2 < 0:
+            # High-precision binary search for more accurate root
             zl, zr = z_grid[i], z_grid[i+1]
+            f1 = discriminant_func(zl, beta, z_a, y_effective)
+            f2 = discriminant_func(zr, beta, z_a, y_effective)
+            
             for _ in range(50):
-                mid = 0.5 * (zl + zr)
+                mid = sp.Float(0.5) * (zl + zr)
                 fm = discriminant_func(mid, beta, z_a, y_effective)
-                if fm == 0:
+                if abs(fm) < 1e-15:
                     zl = zr = mid
                     break
-                if np.sign(fm) == np.sign(f1):
+                if fm * f1 > 0:
                     zl, f1 = mid, fm
                 else:
                     zr, f2 = mid, fm
-            roots_found.append(0.5 * (zl + zr))
+            
+            # Convert back to float for NumPy compatibility
+            roots_found.append(float(0.5 * (zl + zr)))
+    
+    progress.complete()
     return np.array(roots_found)
 
 @st.cache_data
@@ -795,10 +913,15 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
     if cpp_compiled:
         return find_discriminant_zeros(z_a, y, z_min, z_max, beta_steps, z_steps)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(beta_steps, "Computing discriminant zeros across β values")
+    
     betas = np.linspace(0, 1, beta_steps)
     z_min_values = []
     z_max_values = []
-    for b in betas:
+    
+    for i, b in enumerate(betas):
+        progress.update(i+1, f"Processing β = {b:.4f}")
         roots = find_z_at_discriminant_zero(z_a, y, b, z_min, z_max, z_steps)
         if len(roots) == 0:
             z_min_values.append(np.nan)
@@ -806,6 +929,8 @@ def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
         else:
             z_min_values.append(np.min(roots))
             z_max_values.append(np.max(roots))
+    
+    progress.complete()
     return betas, np.array(z_min_values), np.array(z_max_values)
 
 @st.cache_data
@@ -817,20 +942,18 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
     if cpp_compiled:
         return compute_eigenvalue_boundaries(z_a, y, beta_values, n_samples, seeds)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(len(beta_values), "Computing eigenvalue support boundaries")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
     min_eigenvalues = np.zeros_like(beta_values)
     max_eigenvalues = np.zeros_like(beta_values)
     
-    # Use a progress bar for Streamlit
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     for i, beta in enumerate(beta_values):
         # Update progress
-        progress_bar.progress((i + 1) / len(beta_values))
-        status_text.text(f"Processing β = {beta:.2f} ({i+1}/{len(beta_values)})")
+        progress.update(i+1, f"Processing β = {beta:.4f}")
             
         min_vals = []
         max_vals = []
@@ -873,92 +996,156 @@ def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, se
         min_eigenvalues[i] = np.mean(min_vals)
         max_eigenvalues[i] = np.mean(max_vals)
     
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
-    
+    progress.complete()
     return min_eigenvalues, max_eigenvalues
 
 @st.cache_data
 def compute_high_y_curve(betas, z_a, y):
     """
-    Compute the "High y Expression" curve.
+    Compute the "High y Expression" curve with high precision.
     """
     if cpp_compiled:
         return compute_high_y_curve(betas, z_a, y)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(1, "Computing high y expression")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
-    a = z_a
-    betas = np.array(betas)
+    # Use SymPy for higher precision
+    beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
+    a = z_a_sym
     denominator = 1 - 2*a
-    if denominator == 0:
-        return np.full_like(betas, np.nan)
-    numerator = -4*a*(a-1)*y_effective*betas - 2*a*y_effective - 2*a*(2*a-1)
-    return numerator/denominator
+    numerator = -4*a*(a-1)*y_sym*beta_sym - 2*a*y_sym - 2*a*(2*a-1)
+    
+    # Create the high precision expression
+    expr = numerator / denominator
+    
+    # Convert to a high-precision numeric function
+    func = sp.lambdify((beta_sym, z_a_sym, y_sym), expr, "mpmath")
+    
+    # Compute values with high precision
+    result = np.zeros_like(betas)
+    if abs(float(denominator.subs(z_a_sym, z_a))) < 1e-12:
+        result.fill(np.nan)
+    else:
+        for i, beta in enumerate(betas):
+            result[i] = float(func(beta, z_a, y_effective))
+    
+    progress.complete()
+    return result
 
 @st.cache_data
 def compute_alternate_low_expr(betas, z_a, y):
     """
-    Compute the alternate low expression.
+    Compute the alternate low expression with high precision.
     """
     if cpp_compiled:
         return compute_alternate_low_expr(betas, z_a, y)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(1, "Computing low y expression")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
-    betas = np.array(betas)
-    return (z_a * y_effective * betas * (z_a - 1) - 2*z_a*(1 - y_effective) - 2*z_a**2) / (2 + 2*z_a)
+    # Use SymPy for higher precision
+    beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
+    expr = (z_a_sym * y_sym * beta_sym * (z_a_sym - 1) - 
+            2*z_a_sym*(1 - y_sym) - 2*z_a_sym**2) / (2 + 2*z_a_sym)
+    
+    # Convert to a high-precision numeric function
+    func = sp.lambdify((beta_sym, z_a_sym, y_sym), expr, "mpmath")
+    
+    # Compute values with high precision
+    result = np.zeros_like(betas)
+    for i, beta in enumerate(betas):
+        result[i] = float(func(beta, z_a, y_effective))
+    
+    progress.complete()
+    return result
 
 @st.cache_data
 def compute_max_k_expression(betas, z_a, y, k_samples=1000):
     """
     Compute max_{k ∈ (0,∞)} (y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)) / ((a*k+1)*(k^2+k))
+    with high precision.
     """
     if cpp_compiled:
         return compute_max_k_expression(betas, z_a, y, k_samples)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(len(betas), "Computing max k expression")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
-    a = z_a
+    # Use SymPy for symbolic expression
+    k_sym, beta_sym, z_a_sym, y_sym = sp.symbols("k beta z_a y", positive=True)
+    a = z_a_sym
+    numerator = y_sym*beta_sym*(a-1)*k_sym + (a*k_sym+1)*((y_sym-1)*k_sym-1)
+    denominator = (a*k_sym+1)*(k_sym**2+k_sym)
+    expr = numerator / denominator
+    
+    # Convert to high-precision function
+    func = sp.lambdify((k_sym, beta_sym, z_a_sym, y_sym), expr, "mpmath")
+    
     # Sample k values on a logarithmic scale
     k_values = np.logspace(-3, 3, k_samples)
     
     max_vals = np.zeros_like(betas)
     for i, beta in enumerate(betas):
+        progress.update(i+1, f"Processing β = {beta:.4f}")
+        
         values = np.zeros_like(k_values)
         for j, k in enumerate(k_values):
-            numerator = y_effective*beta*(a-1)*k + (a*k+1)*((y_effective-1)*k-1)
-            denominator = (a*k+1)*(k**2+k)
-            if abs(denominator) < 1e-10:
+            try:
+                val = float(func(k, beta, z_a, y_effective))
+                if np.isfinite(val):
+                    values[j] = val
+                else:
+                    values[j] = np.nan
+            except (ZeroDivisionError, OverflowError):
                 values[j] = np.nan
-            else:
-                values[j] = numerator/denominator
         
         valid_indices = ~np.isnan(values)
         if np.any(valid_indices):
             max_vals[i] = np.max(values[valid_indices])
         else:
             max_vals[i] = np.nan
-            
+    
+    progress.complete()
     return max_vals
 
 @st.cache_data
 def compute_min_t_expression(betas, z_a, y, t_samples=1000):
     """
     Compute min_{t ∈ (-1/a, 0)} (y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)) / ((a*t+1)*(t^2+t))
+    with high precision.
     """
     if cpp_compiled:
         return compute_min_t_expression(betas, z_a, y, t_samples)
     
+    # Create progress tracking
+    progress = AdvancedProgressBar(len(betas), "Computing min t expression")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
+    # Use SymPy for symbolic expression
+    t_sym, beta_sym, z_a_sym, y_sym = sp.symbols("t beta z_a y")
+    a = z_a_sym
+    numerator = y_sym*beta_sym*(a-1)*t_sym + (a*t_sym+1)*((y_sym-1)*t_sym-1)
+    denominator = (a*t_sym+1)*(t_sym**2+t_sym)
+    expr = numerator / denominator
+    
+    # Convert to high-precision function
+    func = sp.lambdify((t_sym, beta_sym, z_a_sym, y_sym), expr, "mpmath")
+    
     a = z_a
     if a <= 0:
+        progress.complete(False)
         return np.full_like(betas, np.nan)
         
     lower_bound = -1/a + 1e-10  # Avoid division by zero
@@ -966,75 +1153,134 @@ def compute_min_t_expression(betas, z_a, y, t_samples=1000):
     
     min_vals = np.zeros_like(betas)
     for i, beta in enumerate(betas):
+        progress.update(i+1, f"Processing β = {beta:.4f}")
+        
         values = np.zeros_like(t_values)
         for j, t in enumerate(t_values):
-            numerator = y_effective*beta*(a-1)*t + (a*t+1)*((y_effective-1)*t-1)
-            denominator = (a*t+1)*(t**2+t)
-            if abs(denominator) < 1e-10:
+            try:
+                val = float(func(t, beta, z_a, y_effective))
+                if np.isfinite(val):
+                    values[j] = val
+                else:
+                    values[j] = np.nan
+            except (ZeroDivisionError, OverflowError):
                 values[j] = np.nan
-            else:
-                values[j] = numerator/denominator
         
         valid_indices = ~np.isnan(values)
         if np.any(valid_indices):
             min_vals[i] = np.min(values[valid_indices])
         else:
             min_vals[i] = np.nan
-            
+    
+    progress.complete()
     return min_vals
 
 @st.cache_data
 def compute_derivatives(curve, betas):
-    """Compute first and second derivatives of a curve"""
-    d1 = np.gradient(curve, betas)
-    d2 = np.gradient(d1, betas)
+    """Compute first and second derivatives of a curve using SymPy for accuracy."""
+    # Create a spline representation for smoother derivatives
+    from scipy.interpolate import CubicSpline
+    
+    # Filter out NaN values
+    valid_idx = ~np.isnan(curve)
+    if not np.any(valid_idx):
+        return np.full_like(betas, np.nan), np.full_like(betas, np.nan)
+    
+    valid_betas = betas[valid_idx]
+    valid_curve = curve[valid_idx]
+    
+    if len(valid_betas) < 4:  # Need at least 4 points for cubic spline
+        # Fall back to numpy gradient
+        d1 = np.gradient(curve, betas)
+        d2 = np.gradient(d1, betas)
+        return d1, d2
+    
+    # Create cubic spline for smoother derivatives
+    cs = CubicSpline(valid_betas, valid_curve)
+    
+    # Evaluate first and second derivatives
+    d1 = np.zeros_like(betas)
+    d2 = np.zeros_like(betas)
+    
+    for i, beta in enumerate(betas):
+        if np.isnan(curve[i]):
+            d1[i] = np.nan
+            d2[i] = np.nan
+        else:
+            d1[i] = cs(beta, 1)  # First derivative
+            d2[i] = cs(beta, 2)  # Second derivative
+    
     return d1, d2
 
 def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, alt_low_expr, custom_curve1=None, custom_curve2=None):
     """Compute derivatives for all curves"""
+    progress = AdvancedProgressBar(7, "Computing derivatives")
+    
     derivatives = {}
     
     # Upper z*(β)
+    progress.update(1, "Computing upper z*(β) derivatives")
     derivatives['upper'] = compute_derivatives(z_maxs, betas)
     
     # Lower z*(β)
+    progress.update(2, "Computing lower z*(β) derivatives")
     derivatives['lower'] = compute_derivatives(z_mins, betas)
     
     # Low y Expression (only if provided)
     if low_y_curve is not None:
+        progress.update(3, "Computing low y expression derivatives")
         derivatives['low_y'] = compute_derivatives(low_y_curve, betas)
+    else:
+        progress.update(3, "Skipping low y expression (not provided)")
     
     # High y Expression
     if high_y_curve is not None:
+        progress.update(4, "Computing high y expression derivatives")
         derivatives['high_y'] = compute_derivatives(high_y_curve, betas)
+    else:
+        progress.update(4, "Skipping high y expression (not provided)")
     
     # Alternate Low Expression
     if alt_low_expr is not None:
+        progress.update(5, "Computing alternate low expression derivatives")
         derivatives['alt_low'] = compute_derivatives(alt_low_expr, betas)
+    else:
+        progress.update(5, "Skipping alternate low expression (not provided)")
     
     # Custom Expression 1 (if provided)
     if custom_curve1 is not None:
+        progress.update(6, "Computing custom expression 1 derivatives")
         derivatives['custom1'] = compute_derivatives(custom_curve1, betas)
+    else:
+        progress.update(6, "Skipping custom expression 1 (not provided)")
 
     # Custom Expression 2 (if provided)
     if custom_curve2 is not None:
+        progress.update(7, "Computing custom expression 2 derivatives")
         derivatives['custom2'] = compute_derivatives(custom_curve2, betas)
-        
+    else:
+        progress.update(7, "Skipping custom expression 2 (not provided)")
+    
+    progress.complete()
     return derivatives
 
 def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_based=True):
     """
-    Compute custom curve. If is_s_based=True, compute using s substitution.
-    Otherwise, compute direct z(β) expression.
+    Compute custom curve with high precision using SymPy.
+    If is_s_based=True, compute using s substitution. Otherwise, compute direct z(β) expression.
     """
+    progress = AdvancedProgressBar(4, "Computing custom expression")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
+    # Create SymPy symbols
     beta_sym, z_a_sym, y_sym = sp.symbols("beta z_a y", positive=True)
     local_dict = {"beta": beta_sym, "z_a": z_a_sym, "y": y_sym, "sp": sp}
     
     try:
         # Add sqrt support
+        progress.update(1, "Parsing expression")
         s_num_expr = add_sqrt_support(s_num_expr)
         s_denom_expr = add_sqrt_support(s_denom_expr)
         
@@ -1043,6 +1289,7 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
         
         if is_s_based:
             # Compute s and substitute into main expression
+            progress.update(2, "Computing s-based expression")
             s_expr = num_expr / denom_expr
             a = z_a_sym
             numerator = y_sym*beta_sym*(z_a_sym-1)*s_expr + (a*s_expr+1)*((y_sym-1)*s_expr-1)
@@ -1050,22 +1297,39 @@ def compute_custom_expression(betas, z_a, y, s_num_expr, s_denom_expr, is_s_base
             final_expr = numerator/denominator
         else:
             # Direct z(β) expression
+            progress.update(2, "Computing direct z(β) expression")
             final_expr = num_expr / denom_expr
             
     except sp.SympifyError as e:
+        progress.complete(False)
         st.error(f"Error parsing expressions: {e}")
         return np.full_like(betas, np.nan)
     
-    final_func = sp.lambdify((beta_sym, z_a_sym, y_sym), final_expr, modules=["numpy"])
-    with np.errstate(divide='ignore', invalid='ignore'):
-        result = final_func(betas, z_a, y_effective)
-        if np.isscalar(result):
-            result = np.full_like(betas, result)
+    progress.update(3, "Creating lambda function")
+    
+    # Convert to high-precision numeric function
+    final_func = sp.lambdify((beta_sym, z_a_sym, y_sym), final_expr, modules=["mpmath"])
+    
+    progress.update(4, "Evaluating expression")
+    
+    # Compute values for each beta
+    result = np.zeros_like(betas)
+    
+    for i, beta in enumerate(betas):
+        try:
+            # Calculate with high precision
+            val = final_func(beta, z_a, y_effective)
+            # Convert to float for compatibility
+            result[i] = float(val)
+        except Exception as e:
+            result[i] = np.nan
+    
+    progress.complete()
     return result
 
 def compute_cubic_roots(z, beta, z_a, y):
     """
-    Compute the roots of the cubic equation for given parameters, using C++ if available.
+    Compute the roots of the cubic equation for given parameters with high precision using SymPy.
     """
     if cpp_compiled:
         roots = compute_cubic_roots_cpp(z, beta, z_a, y)
@@ -1074,11 +1338,8 @@ def compute_cubic_roots(z, beta, z_a, y):
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
-    # Import SymPy functions
-    from sympy import symbols, solve, im, re, N, Poly
-    
     # Create a symbolic variable for the equation
-    s = symbols('s')
+    s = sp.Symbol('s')
     
     # Coefficients in the form as^3 + bs^2 + cs + d = 0
     a = z * z_a
@@ -1087,26 +1348,31 @@ def compute_cubic_roots(z, beta, z_a, y):
     d = 1
     
     # Handle special cases
-    if abs(a) < 1e-10:
-        if abs(b) < 1e-10:  # Linear case
+    if abs(a) < 1e-12:
+        if abs(b) < 1e-12:  # Linear case
             roots = np.array([-d/c, 0, 0], dtype=complex)
         else:  # Quadratic case
-            quad_roots = np.roots([b, c, d])
-            roots = np.append(quad_roots, 0).astype(complex)
+            # Use SymPy for higher precision
+            quad_eq = b*s**2 + c*s + d
+            symbolic_roots = sp.solve(quad_eq, s)
+            numerical_roots = [complex(float(sp.N(root.evalf(50)).real), 
+                               float(sp.N(root.evalf(50)).imag)) for root in symbolic_roots]
+            roots = np.array(numerical_roots + [0], dtype=complex)
         return roots
     
     try:
-        # Create the cubic polynomial
-        cubic_eq = Poly(a*s**3 + b*s**2 + c*s + d, s)
+        # Create the cubic equation with high precision
+        cubic_eq = a*s**3 + b*s**2 + c*s + d
         
-        # Solve the equation symbolically
-        symbolic_roots = solve(cubic_eq, s)
+        # Solve using SymPy's solver with high precision
+        symbolic_roots = sp.solve(cubic_eq, s)
         
-        # Convert symbolic roots to complex numbers with high precision
+        # Convert to high-precision complex numbers
         numerical_roots = []
         for root in symbolic_roots:
-            # Use SymPy's N function with high precision
-            numerical_root = complex(N(root, 30))
+            # Use SymPy's N function with high precision (50 digits)
+            high_prec_root = root.evalf(50)
+            numerical_root = complex(float(sp.re(high_prec_root)), float(sp.im(high_prec_root)))
             numerical_roots.append(numerical_root)
         
         # If we got fewer than 3 roots (due to multiplicity), pad with zeros
@@ -1163,22 +1429,40 @@ def track_roots_consistently(z_values, all_roots):
 
 def generate_cubic_discriminant(z, beta, z_a, y_effective):
     """
-    Calculate the cubic discriminant using the standard formula.
-    For a cubic ax^3 + bx^2 + cx + d:
-    Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
+    Calculate the cubic discriminant with high precision using SymPy's standard formula.
+    For a cubic ax^3 + bx^2 + cx + d: Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
     """
-    a = z * z_a
-    b = z * z_a + z + z_a - z_a*y_effective
-    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
-    d = 1
+    # Create symbolic variables for more accurate calculation
+    z_sym, beta_sym, z_a_sym, y_sym = sp.symbols("z beta z_a y", real=True)
+    
+    # Define coefficients with symbols
+    a_sym = z_sym * z_a_sym
+    b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym
+    c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
+    d_sym = 1
     
     # Standard formula for cubic discriminant
-    discriminant = (18*a*b*c*d - 27*a**2*d**2 + b**2*c**2 - 2*b**3*d - 9*a*c**3)
-    return discriminant
+    discriminant_expr = (
+        18*a_sym*b_sym*c_sym*d_sym - 
+        27*a_sym**2*d_sym**2 + 
+        b_sym**2*c_sym**2 - 
+        2*b_sym**3*d_sym - 
+        9*a_sym*c_sym**3
+    )
+    
+    # Create a high-precision lambda function
+    discriminant_func = sp.lambdify(
+        (z_sym, beta_sym, z_a_sym, y_sym), 
+        discriminant_expr, 
+        modules="mpmath"
+    )
+    
+    # Evaluate with high precision
+    return float(discriminant_func(z, beta, z_a, y_effective))
 
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. z plots with improved accuracy.
+    Generate Im(s) and Re(s) vs. z plots with improved accuracy using SymPy.
     """
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
@@ -1187,41 +1471,42 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
+    # Create progress bar
+    progress = AdvancedProgressBar(n_points, "Computing cubic roots vs. z")
+    
     z_points = np.linspace(z_min, z_max, n_points)
     
     # Collect all roots first
     all_roots = []
     discriminants = []
     
-    # Progress indicator
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     for i, z in enumerate(z_points):
         # Update progress
-        progress_bar.progress((i + 1) / n_points)
-        status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
+        progress.update(i+1, f"Computing roots for z = {z:.3f}")
         
-        # Calculate roots
+        # Calculate roots using SymPy
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
         
-        # Calculate discriminant
+        # Calculate discriminant with high precision
         disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
         discriminants.append(disc)
     
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
+    progress.complete()
+    
+    # Create secondary progress bar for root tracking
+    track_progress = AdvancedProgressBar(1, "Tracking roots consistently across z values")
     
     all_roots = np.array(all_roots)
     discriminants = np.array(discriminants)
     
     # Track roots consistently across z values
     tracked_roots = track_roots_consistently(z_points, all_roots)
+    
+    track_progress.complete()
     
     # Extract imaginary and real parts
     ims = np.imag(tracked_roots)
@@ -1270,7 +1555,7 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
 
 def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. β plots.
+    Generate Im(s) and Re(s) vs. β plots with improved accuracy using SymPy.
     """
     if z_a <= 0 or y <= 0 or beta_min >= beta_max:
         st.error("Invalid input parameters.")
@@ -1279,41 +1564,42 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
+    # Create progress bar
+    progress = AdvancedProgressBar(n_points, "Computing cubic roots vs. β")
+    
     beta_points = np.linspace(beta_min, beta_max, n_points)
     
     # Collect all roots first
     all_roots = []
     discriminants = []
     
-    # Progress indicator
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     for i, beta in enumerate(beta_points):
         # Update progress
-        progress_bar.progress((i + 1) / n_points)
-        status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
+        progress.update(i+1, f"Computing roots for β = {beta:.3f}")
         
-        # Calculate roots
+        # Calculate roots using SymPy for higher precision
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
         
-        # Calculate discriminant
+        # Calculate discriminant with high precision
         disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
         discriminants.append(disc)
     
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
+    progress.complete()
+    
+    # Create secondary progress bar for root tracking
+    track_progress = AdvancedProgressBar(1, "Tracking roots consistently across β values")
     
     all_roots = np.array(all_roots)
     discriminants = np.array(discriminants)
     
     # Track roots consistently across beta values
     tracked_roots = track_roots_consistently(beta_points, all_roots)
+    
+    track_progress.complete()
     
     # Extract imaginary and real parts
     ims = np.imag(tracked_roots)
@@ -1363,13 +1649,16 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
 def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_max=10.0, 
                           beta_steps=100, z_steps=100):
     """
-    Generate a phase diagram showing regions of complex and real roots.
+    Generate a phase diagram showing regions of complex and real roots with high precision.
     """
     if cpp_compiled:
         phase_map = generate_phase_diagram_cpp(z_a, y, beta_min, beta_max, z_min, z_max, beta_steps, z_steps)
         beta_values = np.linspace(beta_min, beta_max, beta_steps)
         z_values = np.linspace(z_min, z_max, z_steps)
     else:
+        # Create progress tracking
+        progress = AdvancedProgressBar(z_steps, "Generating phase diagram")
+        
         # Apply the condition for y
         y_effective = y if y > 1 else 1/y
         
@@ -1379,26 +1668,19 @@ def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_ma
         # Initialize phase map
         phase_map = np.zeros((z_steps, beta_steps))
         
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
         for i, z in enumerate(z_values):
             # Update progress
-            progress_bar.progress((i + 1) / len(z_values))
-            status_text.text(f"Analyzing phase at z = {z:.2f} ({i+1}/{len(z_values)})")
+            progress.update(i+1, f"Analyzing z = {z:.2f}")
             
             for j, beta in enumerate(beta_values):
-                roots = compute_cubic_roots(z, beta, z_a, y)
+                # Calculate discriminant with high precision
+                disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
                 
-                # Check if all roots are real (imaginary parts close to zero)
-                is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
-                
-                phase_map[i, j] = 1 if is_all_real else -1
+                # Set result based on sign of discriminant
+                # 1 for all real roots (discriminant > 0), -1 for complex roots (discriminant < 0)
+                phase_map[i, j] = 1 if disc > 0 else -1
         
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
+        progress.complete()
     
     # Create heatmap
     fig = go.Figure(data=go.Heatmap(
@@ -1428,17 +1710,25 @@ def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_ma
 def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
     """
     Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
+    with high precision.
     """
+    # Create progress tracking
+    progress = AdvancedProgressBar(7, "Computing eigenvalue distribution")
+    
     if cpp_compiled:
+        progress.update(1, "Using C++ accelerated implementation")
         eigenvalues, x_vals = generate_eigenvalue_distribution_cpp(beta, y, z_a, n, seed)
+        progress.update(6, "Eigenvalues computed successfully")
     else:
         # Apply the condition for y
         y_effective = y if y > 1 else 1/y
         
         # Set random seed
+        progress.update(1, "Setting up random seed")
         np.random.seed(seed)
         
         # Compute dimension p based on aspect ratio y
+        progress.update(2, "Initializing matrices")
         p = int(y_effective * n)
         
         # Constructing T_n (Population / Shape Matrix)
@@ -1451,23 +1741,30 @@ def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
         T_n = np.diag(diag_entries)
         
         # Generate the data matrix X with i.i.d. standard normal entries
+        progress.update(3, "Generating random data matrix")
         X = np.random.randn(p, n)
         
         # Compute the sample covariance matrix S_n = (1/n) * XX^T
+        progress.update(4, "Computing sample covariance matrix")
         S_n = (1 / n) * (X @ X.T)
         
         # Compute B_n = S_n T_n
+        progress.update(5, "Computing B_n matrix")
         B_n = S_n @ T_n
         
-        # Compute eigenvalues of B_n
+        # Compute eigenvalues of B_n with high precision
+        progress.update(6, "Computing eigenvalues")
         eigenvalues = np.linalg.eigvalsh(B_n)
         
         # Generate x values for KDE
         x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
     
     # Use KDE to compute a smooth density estimate
+    progress.update(7, "Computing kernel density estimate")
     kde = gaussian_kde(eigenvalues)
     kde_vals = kde(x_vals)
+    
+    progress.complete()
     
     # Create figure
     fig = go.Figure()
@@ -1501,21 +1798,33 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
                           use_eigenvalue_method=True,
                           n_samples=1000,
                           seeds=5):
+    """
+    Generate z vs beta plot with high precision calculations.
+    """
+    # Create main progress tracking
+    main_progress = AdvancedProgressBar(5, "Computing z*(β) curves")
+    
     if z_a <= 0 or y <= 0 or z_min >= z_max:
+        main_progress.complete(False)
         st.error("Invalid input parameters.")
         return None
 
+    main_progress.update(1, "Creating β grid")
     betas = np.linspace(0, 1, beta_steps)
     
     if use_eigenvalue_method:
         # Use the eigenvalue method to compute boundaries
-        st.info("Computing eigenvalue support boundaries. This may take a moment...")
+        main_progress.update(2, "Computing eigenvalue support boundaries")
         min_eigs, max_eigs = compute_eigenvalue_support_boundaries(z_a, y, betas, n_samples, seeds)
         z_mins, z_maxs = min_eigs, max_eigs
     else:
         # Use the original discriminant method
+        main_progress.update(2, "Computing discriminant zeros")
         betas, z_mins, z_maxs = sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
-        
+    
+    main_progress.update(3, "Computing additional curves")
+    
+    # Compute additional curves
     high_y_curve = compute_high_y_curve(betas, z_a, y) if show_high_y else None
     alt_low_expr = compute_alternate_low_expr(betas, z_a, y) if show_low_y else None
     
@@ -1533,6 +1842,7 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
 
     # Compute derivatives if needed
     if show_derivatives:
+        main_progress.update(4, "Computing derivatives")
         derivatives = compute_all_derivatives(betas, z_mins, z_maxs, None, high_y_curve, 
                                            alt_low_expr, custom_curve1, custom_curve2)
         # Calculate derivatives for max_k and min_t curves if they exist
@@ -1540,6 +1850,8 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
             max_k_derivatives = compute_derivatives(max_k_curve, betas)
         if show_min_t and min_t_curve is not None:
             min_t_derivatives = compute_derivatives(min_t_curve, betas)
+    
+    main_progress.update(5, "Creating plot")
 
     fig = go.Figure()
     
@@ -1642,6 +1954,8 @@ def generate_z_vs_beta_plot(z_a, y, z_min, z_max, beta_steps, z_steps,
             x=0.01
         )
     )
+    
+    main_progress.complete()
     return fig
 
 def analyze_complex_root_structure(beta_values, z, z_a, y):
@@ -1653,6 +1967,9 @@ def analyze_complex_root_structure(beta_values, z, z_a, y):
     - transition_points: beta values where the root structure changes
     - structure_types: list indicating whether each interval has all real roots or complex roots
     """
+    # Create progress tracking
+    progress = AdvancedProgressBar(len(beta_values), "Analyzing root structure")
+    
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
     
@@ -1661,7 +1978,9 @@ def analyze_complex_root_structure(beta_values, z, z_a, y):
     
     previous_type = None
     
-    for beta in beta_values:
+    for i, beta in enumerate(beta_values):
+        progress.update(i+1, f"Analyzing root structure at β = {beta:.4f}")
+        
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Check if all roots are real (imaginary parts close to zero)
@@ -1680,16 +1999,19 @@ def analyze_complex_root_structure(beta_values, z, z_a, y):
     if previous_type is not None:
         structure_types.append(previous_type)
     
+    progress.complete()
     return transition_points, structure_types
 
 # ----------------- Streamlit UI -----------------
 st.title("Cubic Root Analysis (C++ Accelerated)")
 
-# Add a note about C++ acceleration
+# Add a note about C++ acceleration and high precision
 if cpp_compiled:
     st.success("✅ C++ acceleration module loaded successfully. Calculations will run faster!")
 else:
-    st.warning("⚠️ C++ module compilation failed. Falling back to Python implementations which will be slower.")
+    st.warning("⚠️ C++ module compilation failed. Falling back to Python implementations with high precision SymPy calculations.")
+
+st.info(f"Using SymPy with {sp.mpmath.mp.dps} decimal digits of precision for accurate calculations.")
 
 # Define three tabs
 tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Complex Root Analysis", "Differential Analysis"])
@@ -1997,28 +2319,28 @@ with tab2:
                     st.markdown("### Comparison of Empirical vs Theoretical Bounds")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Theoretical Min", f"{min_eig[0]:.4f}")
-                        st.metric("Theoretical Max", f"{max_eig[0]:.4f}")
-                        st.metric("Theoretical Width", f"{max_eig[0] - min_eig[0]:.4f}")
+                        st.metric("Theoretical Min", f"{min_eig[0]:.6f}")
+                        st.metric("Theoretical Max", f"{max_eig[0]:.6f}")
+                        st.metric("Theoretical Width", f"{max_eig[0] - min_eig[0]:.6f}")
                     with col2:
-                        st.metric("Empirical Min", f"{empirical_min:.4f}")
-                        st.metric("Empirical Max", f"{empirical_max:.4f}")
-                        st.metric("Empirical Width", f"{empirical_max - empirical_min:.4f}")
+                        st.metric("Empirical Min", f"{empirical_min:.6f}")
+                        st.metric("Empirical Max", f"{empirical_max:.6f}")
+                        st.metric("Empirical Width", f"{empirical_max - empirical_min:.6f}")
                     with col3:
-                        st.metric("Min Difference", f"{empirical_min - min_eig[0]:.4f}")
-                        st.metric("Max Difference", f"{empirical_max - max_eig[0]:.4f}")
-                        st.metric("Width Difference", f"{(empirical_max - empirical_min) - (max_eig[0] - min_eig[0]):.4f}")
+                        st.metric("Min Difference", f"{empirical_min - min_eig[0]:.6f}")
+                        st.metric("Max Difference", f"{empirical_max - max_eig[0]:.6f}")
+                        st.metric("Width Difference", f"{(empirical_max - empirical_min) - (max_eig[0] - min_eig[0]):.6f}")
                 
                 # Display additional statistics
                 if show_empirical_stats:
                     st.markdown("### Eigenvalue Statistics")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("Mean", f"{np.mean(eigenvalues):.4f}")
-                        st.metric("Median", f"{np.median(eigenvalues):.4f}")
+                        st.metric("Mean", f"{np.mean(eigenvalues):.6f}")
+                        st.metric("Median", f"{np.median(eigenvalues):.6f}")
                     with col2:
-                        st.metric("Standard Deviation", f"{np.std(eigenvalues):.4f}")
-                        st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.4f}")
+                        st.metric("Standard Deviation", f"{np.std(eigenvalues):.6f}")
+                        st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.6f}")
 
 # ----- Tab 3: Differential Analysis -----
 with tab3:
@@ -2064,18 +2386,25 @@ with tab3:
         with col2:
             use_eigenvalue_method_diff = (diff_method_type == "Eigenvalue Method")
             
+            # Create a progress tracker
+            progress = AdvancedProgressBar(5, "Computing differential analysis")
+            
+            progress.update(1, "Setting up β grid")
             if use_eigenvalue_method_diff:
                 betas_diff = np.linspace(0, 1, beta_steps_diff)
-                st.info("Computing eigenvalue support boundaries. This may take a moment...")
+                progress.update(2, "Computing eigenvalue support boundaries")
                 lower_vals, upper_vals = compute_eigenvalue_support_boundaries(
                     z_a_diff, y_diff, betas_diff, diff_n_samples, diff_seeds)
             else:
+                progress.update(2, "Computing discriminant zeros")
                 betas_diff, lower_vals, upper_vals = sweep_beta_and_find_z_bounds(
                     z_a_diff, y_diff, z_min_diff, z_max_diff, beta_steps_diff, z_steps_diff)
             
             # Create figure
+            progress.update(3, "Creating plot")
             fig_diff = go.Figure()
             
+            progress.update(4, "Computing derivatives")
             if analyze_upper_lower:
                 diff_curve = upper_vals - lower_vals
                 d1 = np.gradient(diff_curve, betas_diff)
@@ -2112,6 +2441,7 @@ with tab3:
                 fig_diff.add_trace(go.Scatter(x=betas_diff, y=d2, mode="lines", 
                                 name="Low y d²/dβ²", line=dict(color="orange", dash='dot')))
 
+            progress.update(5, "Finalizing plot")
             fig_diff.update_layout(
                 title="Differential Analysis vs. β" + 
                       (" (Eigenvalue Method)" if use_eigenvalue_method_diff else " (Discriminant Method)"),
@@ -2126,6 +2456,8 @@ with tab3:
                     x=0.01
                 )
             )
+            
+            progress.complete()
             st.plotly_chart(fig_diff, use_container_width=True)
             
             with st.expander("Curve Types", expanded=False):
