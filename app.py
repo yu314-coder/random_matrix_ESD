@@ -4,67 +4,37 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.optimize import fsolve
 from scipy.stats import gaussian_kde
-import os
 import sys
-import subprocess
+import os
 import importlib.util
 
-# Check if cubic_cpp is built, and build it if not
-def build_cpp_module():
-    if not os.path.exists('cubic_cpp.cpp'):
-        st.error("C++ source file not found!")
-        return False
-        
-    if importlib.util.find_spec("cubic_cpp") is None:
-        st.info("Building C++ extension module...")
-        try:
-            # Simple build command using pybind11
-            cmd = [
-                sys.executable, "-m", "pip", "install", 
-                "pybind11", "numpy", "eigen"
-            ]
-            subprocess.check_call(cmd)
-            
-            # Build the extension
-            cmd = [
-                sys.executable, "-m", "pip", "install", 
-                "-v", "--editable", "."
-            ]
-            subprocess.check_call(cmd)
-            st.success("C++ extension module built successfully!")
-        except subprocess.CalledProcessError as e:
-            st.error(f"Failed to build C++ extension: {e}")
-            return False
-    return True
-
-# Try to import the C++ module
-try:
-    import cubic_cpp
-    cpp_available = True
-except ImportError:
-    if build_cpp_module():
-        try:
-            import cubic_cpp
-            cpp_available = True
-        except ImportError:
-            st.error("Failed to import C++ module after building.")
-            cpp_available = False
-    else:
-        cpp_available = False
-
-# Configure Streamlit for Hugging Face Spaces
+# Configure Streamlit for Hugging Face Spaces - THIS MUST COME FIRST
 st.set_page_config(
     page_title="Cubic Root Analysis",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
+# Try to import C++ module
+try:
+    import cubic_cpp
+    cpp_available = True
+except ImportError:
+    cpp_available = False
+    st.warning("⚠️ C++ acceleration unavailable. Using slower Python implementation.")
+
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
     return expr_str.replace('sqrt(', 'sp.sqrt(')
 
-# Define symbolic variables for the cubic discriminant using SymPy
+#############################
+# 1) Define the discriminant
+#############################
+
+# Symbolic variables for the cubic discriminant
 z_sym, beta_sym, z_a_sym, y_sym = sp.symbols("z beta z_a y", real=True, positive=True)
+
+# Define coefficients a, b, c, d in terms of z_sym, beta_sym, z_a_sym, y_sym
 a_sym = z_sym * z_a_sym
 b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym
 c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
@@ -76,81 +46,335 @@ Delta_expr = (
     + (c_sym/(3*a_sym) - (b_sym**2)/(9*a_sym**2))**3
 )
 
-# Use either C++ or Python implementation for numeric computations
+# Define fallback Python implementations for all functions
+# These will be used if C++ module is unavailable
+
+def discriminant_func_py(z, beta, z_a, y):
+    """Fast numeric function for the discriminant"""
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    # Coefficients
+    a = z * z_a
+    b = z * z_a + z + z_a - z_a*y_effective
+    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+    d = 1
+    
+    # Calculate the discriminant
+    return ((b*c)/(6*a**2) - (b**3)/(27*a**3) - d/(2*a))**2 + (c/(3*a) - (b**2)/(9*a**2))**3
+
+@st.cache_data
+def find_z_at_discriminant_zero_py(z_a, y, beta, z_min, z_max, steps):
+    """
+    Scan z in [z_min, z_max] for sign changes in the discriminant,
+    and return approximated roots (where the discriminant is zero).
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    z_grid = np.linspace(z_min, z_max, steps)
+    disc_vals = np.array([discriminant_func_py(z, beta, z_a, y_effective) for z in z_grid])
+    roots_found = []
+    for i in range(len(z_grid) - 1):
+        f1, f2 = disc_vals[i], disc_vals[i+1]
+        if np.isnan(f1) or np.isnan(f2):
+            continue
+        if f1 == 0.0:
+            roots_found.append(z_grid[i])
+        elif f2 == 0.0:
+            roots_found.append(z_grid[i+1])
+        elif f1 * f2 < 0:
+            zl, zr = z_grid[i], z_grid[i+1]
+            for _ in range(50):
+                mid = 0.5 * (zl + zr)
+                fm = discriminant_func_py(mid, beta, z_a, y_effective)
+                if fm == 0:
+                    zl = zr = mid
+                    break
+                if np.sign(fm) == np.sign(f1):
+                    zl, f1 = mid, fm
+                else:
+                    zr, f2 = mid, fm
+            roots_found.append(0.5 * (zl + zr))
+    return np.array(roots_found)
+
+@st.cache_data
+def sweep_beta_and_find_z_bounds_py(z_a, y, z_min, z_max, beta_steps, z_steps):
+    """
+    For each beta in [0,1] (with beta_steps points), find the minimum and maximum z 
+    for which the discriminant is zero.
+    Returns: betas, lower z*(β) values, and upper z*(β) values.
+    """
+    betas = np.linspace(0, 1, beta_steps)
+    z_min_values = []
+    z_max_values = []
+    for b in betas:
+        roots = find_z_at_discriminant_zero_py(z_a, y, b, z_min, z_max, z_steps)
+        if len(roots) == 0:
+            z_min_values.append(np.nan)
+            z_max_values.append(np.nan)
+        else:
+            z_min_values.append(np.min(roots))
+            z_max_values.append(np.max(roots))
+    return betas, np.array(z_min_values), np.array(z_max_values)
+
+@st.cache_data
+def compute_eigenvalue_support_boundaries_py(z_a, y, beta_values, n_samples=100, seeds=5):
+    """
+    Compute the support boundaries of the eigenvalue distribution by directly
+    finding the minimum and maximum eigenvalues of B_n = S_n T_n for different beta values.
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    min_eigenvalues = np.zeros_like(beta_values)
+    max_eigenvalues = np.zeros_like(beta_values)
+    
+    # Use a progress bar for Streamlit
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, beta in enumerate(beta_values):
+        # Update progress
+        progress_bar.progress((i + 1) / len(beta_values))
+        status_text.text(f"Processing β = {beta:.2f} ({i+1}/{len(beta_values)})")
+            
+        min_vals = []
+        max_vals = []
+        
+        # Run multiple trials with different seeds for more stable results
+        for seed in range(seeds):
+            # Set random seed
+            np.random.seed(seed * 100 + i)
+            
+            # Compute dimension p based on aspect ratio y
+            n = n_samples
+            p = int(y_effective * n)
+            
+            # Constructing T_n (Population / Shape Matrix)
+            k = int(np.floor(beta * p))
+            diag_entries = np.concatenate([
+                np.full(k, z_a),
+                np.full(p - k, 1.0)
+            ])
+            np.random.shuffle(diag_entries)
+            T_n = np.diag(diag_entries)
+            
+            # Generate the data matrix X with i.i.d. standard normal entries
+            X = np.random.randn(p, n)
+            
+            # Compute the sample covariance matrix S_n = (1/n) * XX^T
+            S_n = (1 / n) * (X @ X.T)
+            
+            # Compute B_n = S_n T_n
+            B_n = S_n @ T_n
+            
+            # Compute eigenvalues of B_n
+            eigenvalues = np.linalg.eigvalsh(B_n)
+            
+            # Find minimum and maximum eigenvalues
+            min_vals.append(np.min(eigenvalues))
+            max_vals.append(np.max(eigenvalues))
+        
+        # Average over seeds for stability
+        min_eigenvalues[i] = np.mean(min_vals)
+        max_eigenvalues[i] = np.mean(max_vals)
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    return min_eigenvalues, max_eigenvalues
+
+@st.cache_data
+def compute_cubic_roots_py(z, beta, z_a, y):
+    """
+    Compute the roots of the cubic equation for given parameters.
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    # Coefficients in the form as^3 + bs^2 + cs + d = 0
+    a = z * z_a
+    b = z * z_a + z + z_a - z_a*y_effective
+    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+    d = 1
+    
+    # Handle special cases
+    if abs(a) < 1e-10:
+        if abs(b) < 1e-10:  # Linear case
+            roots = np.array([-d/c, 0, 0], dtype=complex)
+        else:  # Quadratic case
+            quad_roots = np.roots([b, c, d])
+            roots = np.append(quad_roots, 0).astype(complex)
+        return roots
+    
+    # Standard cubic case
+    coeffs = [a, b, c, d]
+    return np.roots(coeffs)
+
+@st.cache_data
+def compute_high_y_curve_py(betas, z_a, y):
+    """
+    Compute the "High y Expression" curve.
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    a = z_a
+    betas = np.array(betas)
+    denominator = 1 - 2*a
+    if denominator == 0:
+        return np.full_like(betas, np.nan)
+    numerator = -4*a*(a-1)*y_effective*betas - 2*a*y_effective - 2*a*(2*a-1)
+    return numerator/denominator
+
+@st.cache_data
+def compute_alternate_low_expr_py(betas, z_a, y):
+    """
+    Compute the alternate low expression.
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    betas = np.array(betas)
+    return (z_a * y_effective * betas * (z_a - 1) - 2*z_a*(1 - y_effective) - 2*z_a**2) / (2 + 2*z_a)
+
+@st.cache_data
+def compute_max_k_expression_py(betas, z_a, y, k_samples=1000):
+    """
+    Compute max_{k ∈ (0,∞)} (y*beta*(a-1)*k + (a*k+1)*((y-1)*k-1)) / ((a*k+1)*(k^2+k))
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    a = z_a
+    # Sample k values on a logarithmic scale
+    k_values = np.logspace(-3, 3, k_samples)
+    
+    max_vals = np.zeros_like(betas)
+    for i, beta in enumerate(betas):
+        values = np.zeros_like(k_values)
+        for j, k in enumerate(k_values):
+            numerator = y_effective*beta*(a-1)*k + (a*k+1)*((y_effective-1)*k-1)
+            denominator = (a*k+1)*(k**2+k)
+            if abs(denominator) < 1e-10:
+                values[j] = np.nan
+            else:
+                values[j] = numerator/denominator
+        
+        valid_indices = ~np.isnan(values)
+        if np.any(valid_indices):
+            max_vals[i] = np.max(values[valid_indices])
+        else:
+            max_vals[i] = np.nan
+            
+    return max_vals
+
+@st.cache_data
+def compute_min_t_expression_py(betas, z_a, y, t_samples=1000):
+    """
+    Compute min_{t ∈ (-1/a, 0)} (y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)) / ((a*t+1)*(t^2+t))
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    a = z_a
+    if a <= 0:
+        return np.full_like(betas, np.nan)
+        
+    lower_bound = -1/a + 1e-10  # Avoid division by zero
+    t_values = np.linspace(lower_bound, -1e-10, t_samples)
+    
+    min_vals = np.zeros_like(betas)
+    for i, beta in enumerate(betas):
+        values = np.zeros_like(t_values)
+        for j, t in enumerate(t_values):
+            numerator = y_effective*beta*(a-1)*t + (a*t+1)*((y_effective-1)*t-1)
+            denominator = (a*t+1)*(t**2+t)
+            if abs(denominator) < 1e-10:
+                values[j] = np.nan
+            else:
+                values[j] = numerator/denominator
+        
+        valid_indices = ~np.isnan(values)
+        if np.any(valid_indices):
+            min_vals[i] = np.min(values[valid_indices])
+        else:
+            min_vals[i] = np.nan
+            
+    return min_vals
+
+@st.cache_data
+def compute_derivatives_py(curve, betas):
+    """Compute first and second derivatives of a curve"""
+    d1 = np.gradient(curve, betas)
+    d2 = np.gradient(d1, betas)
+    return d1, d2
+
+@st.cache_data
+def generate_eigenvalue_distribution_py(beta, y, z_a, n=1000, seed=42):
+    """
+    Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
+    """
+    # Apply the condition for y
+    y_effective = y if y > 1 else 1/y
+    
+    # Set random seed
+    np.random.seed(seed)
+    
+    # Compute dimension p based on aspect ratio y
+    p = int(y_effective * n)
+    
+    # Constructing T_n (Population / Shape Matrix)
+    k = int(np.floor(beta * p))
+    diag_entries = np.concatenate([
+        np.full(k, z_a),
+        np.full(p - k, 1.0)
+    ])
+    np.random.shuffle(diag_entries)
+    T_n = np.diag(diag_entries)
+    
+    # Generate the data matrix X with i.i.d. standard normal entries
+    X = np.random.randn(p, n)
+    
+    # Compute the sample covariance matrix S_n = (1/n) * XX^T
+    S_n = (1 / n) * (X @ X.T)
+    
+    # Compute B_n = S_n T_n
+    B_n = S_n @ T_n
+    
+    # Compute eigenvalues of B_n
+    eigenvalues = np.linalg.eigvalsh(B_n)
+    return eigenvalues
+
+# Use C++ implementations if available, otherwise use Python implementations
 if cpp_available:
-    # Use C++ implementations
     discriminant_func = cubic_cpp.discriminant_func
-    
-    @st.cache_data
-    def find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps):
-        return cubic_cpp.find_z_at_discriminant_zero(z_a, y, beta, z_min, z_max, steps)
-    
-    @st.cache_data
-    def sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps):
-        return cubic_cpp.sweep_beta_and_find_z_bounds(z_a, y, z_min, z_max, beta_steps, z_steps)
-    
-    @st.cache_data
-    def compute_eigenvalue_support_boundaries(z_a, y, beta_values, n_samples=100, seeds=5):
-        beta_array = np.array(beta_values)
-        return cubic_cpp.compute_eigenvalue_support_boundaries(
-            z_a, y, beta_array, n_samples, seeds)
-    
-    @st.cache_data
-    def compute_cubic_roots(z, beta, z_a, y):
-        return cubic_cpp.compute_cubic_roots(z, beta, z_a, y)
-        
-    @st.cache_data
-    def compute_high_y_curve(betas, z_a, y):
-        return cubic_cpp.compute_high_y_curve(betas, z_a, y)
-    
-    @st.cache_data
-    def compute_alternate_low_expr(betas, z_a, y):
-        return cubic_cpp.compute_alternate_low_expr(betas, z_a, y)
-    
-    @st.cache_data
-    def compute_max_k_expression(betas, z_a, y, k_samples=1000):
-        return cubic_cpp.compute_max_k_expression(betas, z_a, y, k_samples)
-    
-    @st.cache_data
-    def compute_min_t_expression(betas, z_a, y, t_samples=1000):
-        return cubic_cpp.compute_min_t_expression(betas, z_a, y, t_samples)
-    
-    @st.cache_data
-    def compute_derivatives(curve, betas):
-        return cubic_cpp.compute_derivatives(curve, betas)
-    
-    @st.cache_data
-    def generate_eigenvalue_distribution(beta, y, z_a, n, seed):
-        return cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
-        
+    find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
+    sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
+    compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
+    compute_cubic_roots = cubic_cpp.compute_cubic_roots
+    compute_high_y_curve = cubic_cpp.compute_high_y_curve
+    compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
+    compute_max_k_expression = cubic_cpp.compute_max_k_expression
+    compute_min_t_expression = cubic_cpp.compute_min_t_expression
+    compute_derivatives = cubic_cpp.compute_derivatives
+    generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
 else:
-    # Original Python implementations (as fallback)
-    # Only showing a few key functions for brevity
-    
-    def discriminant_func(z, beta, z_a, y):
-        """Fast numeric function for the discriminant"""
-        # Apply the condition for y
-        y_effective = y if y > 1 else 1/y
-        
-        # Coefficients
-        a = z * z_a
-        b = z * z_a + z + z_a - z_a*y_effective
-        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
-        d = 1
-        
-        # Calculate the discriminant
-        return ((b*c)/(6*a**2) - (b**3)/(27*a**3) - d/(2*a))**2 + (c/(3*a) - (b**2)/(9*a**2))**3
+    discriminant_func = discriminant_func_py
+    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
+    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
+    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
+    compute_cubic_roots = compute_cubic_roots_py
+    compute_high_y_curve = compute_high_y_curve_py
+    compute_alternate_low_expr = compute_alternate_low_expr_py
+    compute_max_k_expression = compute_max_k_expression_py
+    compute_min_t_expression = compute_min_t_expression_py
+    compute_derivatives = compute_derivatives_py
+    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
 
-    # ... [rest of Python implementations]
-
-# The rest of the app.py remains the same as in the original file
-# This includes the Streamlit UI code and the functions that operate on the data
-# returned by the computational functions.
-
-# ... [Original app.py from here]
-
-def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, alt_low_expr, 
-                          custom_curve1=None, custom_curve2=None):
+def compute_all_derivatives(betas, z_mins, z_maxs, low_y_curve, high_y_curve, alt_low_expr, custom_curve1=None, custom_curve2=None):
     """Compute derivatives for all curves"""
     derivatives = {}
     
@@ -382,7 +606,7 @@ def track_roots_consistently(z_values, all_roots):
     Ensure consistent tracking of roots across z values by minimizing discontinuity.
     """
     n_points = len(z_values)
-    n_roots = 3  # Always 3 roots for cubic
+    n_roots = len(all_roots[0])
     tracked_roots = np.zeros((n_points, n_roots), dtype=complex)
     tracked_roots[0] = all_roots[0]
     
@@ -435,7 +659,7 @@ def generate_cubic_discriminant(z, beta, z_a, y_effective):
 
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. z plots with improved accuracy using C++.
+    Generate Im(s) and Re(s) vs. z plots with improved accuracy using SymPy.
     """
     if z_a <= 0 or y <= 0 or z_min >= z_max:
         st.error("Invalid input parameters.")
@@ -459,7 +683,7 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
         progress_bar.progress((i + 1) / n_points)
         status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
         
-        # Calculate roots using C++ or Python
+        # Calculate roots
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
@@ -527,7 +751,7 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
 
 def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
     """
-    Generate Im(s) and Re(s) vs. β plots with improved accuracy using C++.
+    Generate Im(s) and Re(s) vs. β plots with improved accuracy.
     """
     if z_a <= 0 or y <= 0 or beta_min >= beta_max:
         st.error("Invalid input parameters.")
@@ -551,7 +775,7 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
         progress_bar.progress((i + 1) / n_points)
         status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
         
-        # Calculate roots using C++ or Python
+        # Calculate roots
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
@@ -717,44 +941,12 @@ def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_ma
     return fig
 
 @st.cache_data
-def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
+def generate_eigenvalue_distribution_plot(beta, y, z_a, n=1000, seed=42):
     """
     Generate the eigenvalue distribution of B_n = S_n T_n as n→∞
     """
-    # Use C++ implementation if available
-    if cpp_available:
-        eigenvalues = cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
-    else:
-        # Python implementation (fallback)
-        # Apply the condition for y
-        y_effective = y if y > 1 else 1/y
-        
-        # Set random seed
-        np.random.seed(seed)
-        
-        # Compute dimension p based on aspect ratio y
-        p = int(y_effective * n)
-        
-        # Constructing T_n (Population / Shape Matrix)
-        k = int(np.floor(beta * p))
-        diag_entries = np.concatenate([
-            np.full(k, z_a),
-            np.full(p - k, 1.0)
-        ])
-        np.random.shuffle(diag_entries)
-        T_n = np.diag(diag_entries)
-        
-        # Generate the data matrix X with i.i.d. standard normal entries
-        X = np.random.randn(p, n)
-        
-        # Compute the sample covariance matrix S_n = (1/n) * XX^T
-        S_n = (1 / n) * (X @ X.T)
-        
-        # Compute B_n = S_n T_n
-        B_n = S_n @ T_n
-        
-        # Compute eigenvalues of B_n
-        eigenvalues = np.linalg.eigvalsh(B_n)
+    # Generate eigenvalues
+    eigenvalues = generate_eigenvalue_distribution(beta, y, z_a, n, seed)
     
     # Use KDE to compute a smooth density estimate
     kde = gaussian_kde(eigenvalues)
@@ -786,11 +978,8 @@ def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
 def main():
     st.title("Cubic Root Analysis")
     
-    if not cpp_available:
-        st.warning("C++ acceleration module not available. Using slower Python implementation instead.")
-    
     # Define three tabs
-    tab1, tab2, tab3, = st.tabs(["z*(β) Curves", "Complex Root Analysis", "Differential Analysis"])
+    tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Complex Root Analysis", "Differential Analysis"])
     
     # ----- Tab 1: z*(β) Curves -----
     with tab1:
@@ -846,17 +1035,17 @@ def main():
             st.latex(r"\frac{y\beta(z_a-1)\underline{s}+(a\underline{s}+1)((y-1)\underline{s}-1)}{(a\underline{s}+1)(\underline{s}^2 + \underline{s})}")
             s_num = st.text_input("s numerator", value="", key="s_num")
             s_denom = st.text_input("s denominator", value="", key="s_denom")
-    
+
         with st.expander("Custom Expression 2 (direct z(β))", expanded=False):
             st.markdown("""Enter direct expression for z(β) = numerator/denominator 
                         (using variables `y`, `beta`, `z_a`, and `sqrt()`)""")
             z_num = st.text_input("z(β) numerator", value="", key="z_num")
             z_denom = st.text_input("z(β) denominator", value="", key="z_denom")
-    
+
         # Move show_derivatives to main UI level for better visibility
         with col2:
             show_derivatives = st.checkbox("Show derivatives", value=False)
-    
+
         # Compute button
         if st.button("Compute Curves", key="tab1_button"):
             with col3:
@@ -906,7 +1095,7 @@ def main():
                             - Dashed lines: First derivatives (d/dβ)
                             - Dotted lines: Second derivatives (d²/dβ²)
                             """)
-    
+
     # ----- Tab 2: Complex Root Analysis -----
     with tab2:
         st.header("Complex Root Analysis")
@@ -947,7 +1136,7 @@ def main():
                             These transition points align perfectly with the z*(β) boundary curves from the first tab,
                             which represent exactly these transitions in the (β,z) plane.
                             """)
-    
+
         # New tab for Im{s} vs. β plot
         with plot_tabs[1]:
             col1, col2 = st.columns([1, 2])
@@ -1035,7 +1224,7 @@ def main():
                             which are the exact same curves as the z*(β) boundaries in the first tab. This phase
                             diagram provides a comprehensive view of the eigenvalue support structure.
                             """)
-    
+
         # Eigenvalue distribution tab
         with plot_tabs[3]:
             st.subheader("Eigenvalue Distribution for B_n = S_n T_n")
@@ -1058,11 +1247,11 @@ def main():
                 # Add comparison option
                 show_theoretical = st.checkbox("Show theoretical boundaries", value=True)
                 show_empirical_stats = st.checkbox("Show empirical statistics", value=True)
-    
+
             if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
                 with col_eigen2:
                     # Generate the eigenvalue distribution
-                    fig_eigen, eigenvalues = generate_eigenvalue_distribution(beta_eigen, y_eigen, z_a_eigen, n=n_samples, seed=sim_seed)
+                    fig_eigen, eigenvalues = generate_eigenvalue_distribution_plot(beta_eigen, y_eigen, z_a_eigen, n=n_samples, seed=sim_seed)
                     
                     # If requested, compute and add theoretical boundaries
                     if show_theoretical:
@@ -1117,7 +1306,7 @@ def main():
                         with col2:
                             st.metric("Standard Deviation", f"{np.std(eigenvalues):.4f}")
                             st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.4f}")
-    
+
     # ----- Tab 3: Differential Analysis -----
     with tab3:
         st.header("Differential Analysis vs. β")
