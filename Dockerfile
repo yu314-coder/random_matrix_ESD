@@ -5,24 +5,20 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    cmake \
+    python3-dev \
     libeigen3-dev \
+    python3-pybind11 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy all necessary files
-COPY app.py cubic_cpp.cpp setup.py requirements.txt ./
+# Copy files
+COPY requirements.txt cubic_cpp.cpp setup.py app.py ./
 
-# Install Python dependencies
+# Install Python requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Build C++ extension
+# Build the C++ extension
 RUN pip install -e .
-
-# Expose Streamlit port
-EXPOSE 8501
-
-# Set Streamlit environment variables
-ENV STREAMLIT_SERVER_PORT=8501
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 # Run the application
 CMD ["streamlit", "run", "app.py"]
