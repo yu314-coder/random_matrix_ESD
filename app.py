@@ -66,7 +66,44 @@ except ImportError as e:
     except Exception as compile_error:
         print(f"Failed to compile C++ module: {compile_error}")
         cpp_available = False
-
+# Use C++ implementations if available, otherwise use Python implementations
+if cpp_available:
+    try:
+        # Try to get each function, fall back to Python implementation if missing
+        discriminant_func = getattr(cubic_cpp, "discriminant_func", discriminant_func_py)
+        find_z_at_discriminant_zero = getattr(cubic_cpp, "find_z_at_discriminant_zero", find_z_at_discriminant_zero_py)
+        sweep_beta_and_find_z_bounds = getattr(cubic_cpp, "sweep_beta_and_find_z_bounds", sweep_beta_and_find_z_bounds_py)
+        compute_eigenvalue_support_boundaries = getattr(cubic_cpp, "compute_eigenvalue_support_boundaries", compute_eigenvalue_support_boundaries_py)
+        compute_cubic_roots = getattr(cubic_cpp, "compute_cubic_roots", compute_cubic_roots_py)
+        compute_high_y_curve = getattr(cubic_cpp, "compute_high_y_curve", compute_high_y_curve_py)
+        compute_alternate_low_expr = getattr(cubic_cpp, "compute_alternate_low_expr", compute_alternate_low_expr_py)
+        compute_max_k_expression = getattr(cubic_cpp, "compute_max_k_expression", compute_max_k_expression_py)
+        compute_min_t_expression = getattr(cubic_cpp, "compute_min_t_expression", compute_min_t_expression_py)
+        compute_derivatives = getattr(cubic_cpp, "compute_derivatives", compute_derivatives_py)
+        
+        # Special case for lambda function
+        if hasattr(cubic_cpp, "generate_eigenvalue_distribution"):
+            generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+        else:
+            generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
+            
+        print("Using C++ acceleration for available functions")
+    except Exception as e:
+        print(f"Error setting up C++ functions: {e}")
+        # Fall back to all Python implementations
+        cpp_available = False
+else:
+    discriminant_func = discriminant_func_py
+    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
+    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
+    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
+    compute_cubic_roots = compute_cubic_roots_py
+    compute_high_y_curve = compute_high_y_curve_py
+    compute_alternate_low_expr = compute_alternate_low_expr_py
+    compute_max_k_expression = compute_max_k_expression_py
+    compute_min_t_expression = compute_min_t_expression_py
+    compute_derivatives = compute_derivatives_py
+    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
     return expr_str.replace('sqrt(', 'sp.sqrt(')
