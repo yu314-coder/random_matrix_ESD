@@ -38,14 +38,54 @@ for loc in module_locations:
 try:
     import cubic_cpp
     cpp_available = True
-    # Print the location of the imported module to verify
     print(f"Loaded C++ module from: {cubic_cpp.__file__}")
 except ImportError as e:
-    import sys
     print(f"C++ acceleration unavailable: {e}")
     print(f"Python path: {sys.path}")
     print(f"Current directory: {os.getcwd()}")
-    cpp_available = False
+    
+    # Try to compile the module on the fly
+    try:
+        import subprocess
+        import sys
+        import os
+        
+        print("Attempting to compile C++ module at runtime...")
+        
+        # Get the extension suffix for this Python version
+        ext_suffix = subprocess.check_output("python3-config --extension-suffix", shell=True).decode().strip()
+        print(f"Extension suffix: {ext_suffix}")
+        
+        # Compile command
+        compile_cmd = f"""g++ -O3 -shared -std=c++11 -fPIC \
+            $(python3-config --includes) \
+            -I$(python3 -c "import pybind11; print(pybind11.get_include())") \
+            -I$(python3 -c "import numpy; print(numpy.get_include())") \
+            {os.path.join(os.getcwd(), 'cubic_cpp.cpp')} \
+            -o {os.path.join(os.getcwd(), 'cubic_cpp' + ext_suffix)}"""
+        
+        print(f"Compile command: {compile_cmd}")
+        result = subprocess.run(compile_cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            print("Compilation successful")
+            # Try to import again
+            sys.path.insert(0, os.getcwd())  # Ensure current directory is in path
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("cubic_cpp", os.path.join(os.getcwd(), "cubic_cpp" + ext_suffix))
+            if spec:
+                cubic_cpp = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(cubic_cpp)
+                cpp_available = True
+                print(f"Successfully imported compiled module")
+            else:
+                raise ImportError(f"Failed to load module spec for cubic_cpp")
+        else:
+            print(f"Compilation failed: {result.stderr}")
+            raise RuntimeError(f"C++ compilation failed: {result.stderr}")
+    except Exception as compile_error:
+        print(f"Failed to compile C++ module: {compile_error}")
+        cpp_available = False
 
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
