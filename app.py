@@ -1059,18 +1059,71 @@ def generate_eigenvalue_distribution_plot(beta, y, z_a, n=1000, seed=42):
     return fig, eigenvalues
 # Use C++ implementations if available, otherwise use Python implementations
 if cpp_available:
-    discriminant_func = cubic_cpp.discriminant_func
-    find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
-    sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
-    compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
-    compute_cubic_roots = cubic_cpp.compute_cubic_roots
-    compute_high_y_curve = cubic_cpp.compute_high_y_curve
-    compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
-    compute_max_k_expression = cubic_cpp.compute_max_k_expression
-    compute_min_t_expression = cubic_cpp.compute_min_t_expression
-    compute_derivatives = cubic_cpp.compute_derivatives
-    generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+    # First check which functions actually exist in the C++ module
+    available_cpp_functions = []
+    for func_name in dir(cubic_cpp):
+        if not func_name.startswith('_'):
+            available_cpp_functions.append(func_name)
+    
+    print(f"Available C++ functions: {available_cpp_functions}")
+    
+    # Now assign functions based on what's available
+    if "discriminant_func" in available_cpp_functions:
+        discriminant_func = cubic_cpp.discriminant_func
+    else:
+        discriminant_func = discriminant_func_py
+        
+    if "find_z_at_discriminant_zero" in available_cpp_functions:
+        find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
+    else:
+        find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
+        
+    if "sweep_beta_and_find_z_bounds" in available_cpp_functions:
+        sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
+    else:
+        sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
+        
+    if "compute_eigenvalue_support_boundaries" in available_cpp_functions:
+        compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
+    else:
+        compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
+        
+    if "compute_cubic_roots" in available_cpp_functions:
+        compute_cubic_roots = cubic_cpp.compute_cubic_roots
+    else:
+        compute_cubic_roots = compute_cubic_roots_py
+        
+    if "compute_high_y_curve" in available_cpp_functions:
+        compute_high_y_curve = cubic_cpp.compute_high_y_curve
+    else:
+        compute_high_y_curve = compute_high_y_curve_py
+        
+    if "compute_alternate_low_expr" in available_cpp_functions:
+        compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
+    else:
+        compute_alternate_low_expr = compute_alternate_low_expr_py
+        
+    if "compute_max_k_expression" in available_cpp_functions:
+        compute_max_k_expression = cubic_cpp.compute_max_k_expression
+    else:
+        compute_max_k_expression = compute_max_k_expression_py
+        
+    if "compute_min_t_expression" in available_cpp_functions:
+        compute_min_t_expression = cubic_cpp.compute_min_t_expression
+    else:
+        compute_min_t_expression = compute_min_t_expression_py
+        
+    if "compute_derivatives" in available_cpp_functions:
+        compute_derivatives = cubic_cpp.compute_derivatives
+    else:
+        compute_derivatives = compute_derivatives_py
+        
+    if "generate_eigenvalue_distribution" in available_cpp_functions:
+        generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+    else:
+        generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
 else:
+    # Use all Python implementations
     discriminant_func = discriminant_func_py
     find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
     sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
