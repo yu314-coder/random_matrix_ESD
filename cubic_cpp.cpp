@@ -363,41 +363,7 @@ std::tuple<double, double> compute_eigenvalues_for_beta(double z_a, double y, do
     // Return min and max
     return std::make_tuple(eigenvalues.front(), eigenvalues.back());
 }
-// Compute derivatives - implementation matching Python's gradient
-std::tuple<std::vector<double>, std::vector<double>> 
-compute_derivatives(const std::vector<double>& curve, const std::vector<double>& betas) {
-    size_t n = curve.size();
-    std::vector<double> d1(n, 0.0);
-    std::vector<double> d2(n, 0.0);
-    
-    if (n < 2 || n != betas.size()) {
-        return std::make_tuple(d1, d2); // Return zeros if invalid input
-    }
-    
-    // First derivative using central differences
-    for (size_t i = 1; i < n-1; i++) {
-        d1[i] = (curve[i+1] - curve[i-1]) / (betas[i+1] - betas[i-1]);
-    }
-    
-    // Edge cases using forward/backward differences
-    if (n > 1) {
-        d1[0] = (curve[1] - curve[0]) / (betas[1] - betas[0]);
-        d1[n-1] = (curve[n-1] - curve[n-2]) / (betas[n-1] - betas[n-2]);
-    }
-    
-    // Second derivative using the same method applied to first derivative
-    for (size_t i = 1; i < n-1; i++) {
-        d2[i] = (d1[i+1] - d1[i-1]) / (betas[i+1] - betas[i-1]);
-    }
-    
-    // Edge cases for second derivative
-    if (n > 1) {
-        d2[0] = (d1[1] - d1[0]) / (betas[1] - betas[0]);
-        d2[n-1] = (d1[n-1] - d1[n-2]) / (betas[n-1] - betas[n-2]);
-    }
-    
-    return std::make_tuple(d1, d2);
-}
+
 // Fast computation of eigenvalue support boundaries
 std::tuple<std::vector<double>, std::vector<double>, std::vector<double>, std::vector<double>>
 compute_eigenvalue_support_boundaries(double z_a, double y, const std::vector<double>& beta_values, 
@@ -678,6 +644,42 @@ std::vector<double> generate_eigenvalue_distribution(double beta, double y, doub
     // Sort eigenvalues
     std::sort(eigenvalues.begin(), eigenvalues.end());
     return eigenvalues;
+}
+
+// ADD THE MISSING COMPUTE_DERIVATIVES FUNCTION
+std::tuple<std::vector<double>, std::vector<double>> 
+compute_derivatives(const std::vector<double>& curve, const std::vector<double>& betas) {
+    size_t n = curve.size();
+    std::vector<double> d1(n, 0.0);
+    std::vector<double> d2(n, 0.0);
+    
+    if (n < 2 || n != betas.size()) {
+        return std::make_tuple(d1, d2); // Return zeros if invalid input
+    }
+    
+    // First derivative using central differences
+    for (size_t i = 1; i < n-1; i++) {
+        d1[i] = (curve[i+1] - curve[i-1]) / (betas[i+1] - betas[i-1]);
+    }
+    
+    // Edge cases using forward/backward differences
+    if (n > 1) {
+        d1[0] = (curve[1] - curve[0]) / (betas[1] - betas[0]);
+        d1[n-1] = (curve[n-1] - curve[n-2]) / (betas[n-1] - betas[n-2]);
+    }
+    
+    // Second derivative using the same method applied to first derivative
+    for (size_t i = 1; i < n-1; i++) {
+        d2[i] = (d1[i+1] - d1[i-1]) / (betas[i+1] - betas[i-1]);
+    }
+    
+    // Edge cases for second derivative
+    if (n > 1) {
+        d2[0] = (d1[1] - d1[0]) / (betas[1] - betas[0]);
+        d2[n-1] = (d1[n-1] - d1[n-2]) / (betas[n-1] - betas[n-2]);
+    }
+    
+    return std::make_tuple(d1, d2);
 }
 
 // Python module definition
