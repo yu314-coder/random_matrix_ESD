@@ -14,30 +14,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-# Add at the beginning of app.py, before the import attempt
-import os
-import sys
 
-# Try to find the module in common locations
-module_locations = [
-    os.getcwd(),
-    os.path.dirname(os.path.abspath(__file__)),
-    '/home/user/app',
-    '/home/user/a'
-]
-
-for loc in module_locations:
-    if loc not in sys.path:
-        sys.path.insert(0, loc)
-    
-    # Check for the module file
-    for ext in ['.so', '.cpython-310-x86_64-linux-gnu.so', '.cpython-310-aarch64-linux-gnu.so']:
-        if os.path.exists(os.path.join(loc, f'cubic_cpp{ext}')):
-            print(f"Found module at: {os.path.join(loc, f'cubic_cpp{ext}')}")
 # Try to import C++ module
 try:
     import cubic_cpp
     cpp_available = True
+    # Print the location of the imported module to verify
     print(f"Loaded C++ module from: {cubic_cpp.__file__}")
 except ImportError as e:
     print(f"C++ acceleration unavailable: {e}")
@@ -47,8 +29,6 @@ except ImportError as e:
     # Try to compile the module on the fly
     try:
         import subprocess
-        import sys
-        import os
         
         print("Attempting to compile C++ module at runtime...")
         
@@ -56,7 +36,7 @@ except ImportError as e:
         ext_suffix = subprocess.check_output("python3-config --extension-suffix", shell=True).decode().strip()
         print(f"Extension suffix: {ext_suffix}")
         
-        # Compile command
+        # Compile command with C++17
         compile_cmd = f"""g++ -O3 -shared -std=c++17 -fPIC \
             $(python3-config --includes) \
             -I$(python3 -c "import pybind11; print(pybind11.get_include())") \
@@ -253,10 +233,14 @@ def compute_eigenvalue_support_boundaries_py(z_a, y, beta_values, n_samples=100,
 @st.cache_data
 def compute_cubic_roots_py(z, beta, z_a, y):
     """
-    Compute the roots of the cubic equation for given parameters.
+    Compute the roots of the cubic equation for given parameters using SymPy
+    for enhanced precision.
     """
     # Apply the condition for y
     y_effective = y if y > 1 else 1/y
+    
+    # Use SymPy for symbolic calculations
+    s = sp.symbols('s')
     
     # Coefficients in the form as^3 + bs^2 + cs + d = 0
     a = z * z_a
@@ -273,9 +257,24 @@ def compute_cubic_roots_py(z, beta, z_a, y):
             roots = np.append(quad_roots, 0).astype(complex)
         return roots
     
-    # Standard cubic case
-    coeffs = [a, b, c, d]
-    return np.roots(coeffs)
+    # Create the cubic polynomial and solve symbolically
+    cubic_poly = a*s**3 + b*s**2 + c*s + d
+    
+    try:
+        # Use SymPy's solve function for high precision
+        symbolic_roots = sp.solve(cubic_poly, s)
+        # Convert to complex numpy array
+        roots = np.array([complex(root.evalf()) for root in symbolic_roots], dtype=complex)
+        
+        # Ensure we have exactly 3 roots (SymPy might return fewer for multiple roots)
+        if len(roots) < 3:
+            # Fill in duplicates for multiple roots
+            roots = np.append(roots, np.full(3 - len(roots), roots[-1]))
+            
+        return roots
+    except Exception:
+        # Fall back to numpy if SymPy fails
+        return np.roots([a, b, c, d])
 
 @st.cache_data
 def compute_high_y_curve_py(betas, z_a, y):
@@ -712,14 +711,35 @@ def generate_cubic_discriminant(z, beta, z_a, y_effective):
     For a cubic ax^3 + bx^2 + cx + d:
     Δ = 18abcd - 27a^2d^2 + b^2c^2 - 2b^3d - 9ac^3
     """
-    a = z * z_a
-    b = z * z_a + z + z_a - z_a*y_effective
-    c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
-    d = 1
-    
-    # Standard formula for cubic discriminant
-    discriminant = (18*a*b*c*d - 27*a**2*d**2 + b**2*c**2 - 2*b**3*d - 9*a*c**3)
-    return discriminant
+    # Use SymPy for more accurate computation when possible
+    try:
+        # Convert to sympy expressions for high precision
+        z_sym = sp.Rational(str(z))
+        beta_sym = sp.Rational(str(beta))
+        z_a_sym = sp.Rational(str(z_a))
+        y_sym = sp.Rational(str(y_effective))
+        
+        # Define coefficients symbolically
+        a_sym = z_sym * z_a_sym
+        b_sym = z_sym * z_a_sym + z_sym + z_a_sym - z_a_sym*y_sym
+        c_sym = z_sym + z_a_sym + 1 - y_sym*(beta_sym*z_a_sym + 1 - beta_sym)
+        d_sym = 1
+        
+        # Standard formula for cubic discriminant
+        discriminant = (18*a_sym*b_sym*c_sym*d_sym - 27*a_sym**2*d_sym**2 + 
+                       b_sym**2*c_sym**2 - 2*b_sym**3*d_sym - 9*a_sym*c_sym**3)
+        
+        return float(discriminant.evalf())
+    except Exception:
+        # Fall back to numeric computation if SymPy fails
+        a = z * z_a
+        b = z * z_a + z + z_a - z_a*y_effective
+        c = z + z_a + 1 - y_effective*(beta*z_a + 1 - beta)
+        d = 1
+        
+        # Standard formula for cubic discriminant
+        discriminant = (18*a*b*c*d - 27*a**2*d**2 + b**2*c**2 - 2*b**3*d - 9*a*c**3)
+        return discriminant
 
 def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
     """
@@ -747,14 +767,14 @@ def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
         progress_bar.progress((i + 1) / n_points)
         status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
         
-        # Calculate roots
+        # Calculate roots with SymPy for higher precision
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
         
-        # Calculate discriminant
+        # Calculate discriminant with SymPy for higher precision
         disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
         discriminants.append(disc)
     
@@ -839,14 +859,14 @@ def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
         progress_bar.progress((i + 1) / n_points)
         status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
         
-        # Calculate roots
+        # Calculate roots with SymPy for higher precision
         roots = compute_cubic_roots(z, beta, z_a, y)
         
         # Initial sorting to help with tracking
         roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
         all_roots.append(roots)
         
-        # Calculate discriminant
+        # Calculate discriminant with SymPy for higher precision
         disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
         discriminants.append(disc)
     
