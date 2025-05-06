@@ -19,9 +19,10 @@ st.set_page_config(
 try:
     import cubic_cpp
     cpp_available = True
-except ImportError:
+    st.success("✅ C++ acceleration active")
+except ImportError as e:
+    st.warning(f"⚠️ C++ acceleration unavailable: {str(e)}")
     cpp_available = False
-    st.warning("⚠️ C++ acceleration unavailable. Using slower Python implementation.")
 
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
