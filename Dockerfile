@@ -11,16 +11,26 @@ RUN apt-get update && apt-get install -y \
     python3-pybind11 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements first (for better caching)
-COPY requirements.txt .
+# Debug: List installed packages
+RUN python -m pip list
+
+# Copy all files at once to maintain relationships
+COPY . .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy C++ extension files and build them
-COPY cubic_cpp.cpp setup.py .
-RUN pip install -e .
+# Build the C++ extension with verbose output
+RUN python -m pip install -e . --verbose
 
-# Copy the rest of the application
-COPY . .
+# Verify the extension exists after building
+RUN python -c "import os; print('Contents of directory:'); print(os.listdir('.')); \
+    print('Looking for .so files:'); print([f for f in os.listdir('.') if f.endswith('.so')]); \
+    print('Python path:'); import sys; print(sys.path)"
+
+# Check if the module can be imported
+RUN python -c "try: import cubic_cpp; print('✓ Successfully imported cubic_cpp'); \
+    except ImportError as e: print(f'✗ Import failed: {e}')"
 
 # Run the application
 CMD ["streamlit", "run", "app.py"]
