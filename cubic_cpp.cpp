@@ -681,7 +681,94 @@ compute_derivatives(const std::vector<double>& curve, const std::vector<double>&
     
     return std::make_tuple(d1, d2);
 }
-
+// Compute cubic equation roots
+std::vector<std::complex<double>> compute_cubic_roots(double z, double beta, double z_a, double y) {
+    // Apply the condition for y
+    double y_effective = apply_y_condition(y);
+    
+    // Coefficients in the form ax^3 + bx^2 + cx + d = 0
+    double a = z * z_a;
+    double b = z * z_a + z + z_a - z_a * y_effective;
+    double c = z + z_a + 1 - y_effective * (beta * z_a + 1 - beta);
+    double d = 1.0;
+    
+    // Handle special cases
+    if (std::abs(a) < 1e-10) {
+        // Quadratic case or linear case
+        std::vector<std::complex<double>> roots(3);
+        if (std::abs(b) < 1e-10) {
+            // Linear case
+            roots[0] = std::complex<double>(-d / c, 0.0);
+            roots[1] = std::complex<double>(0.0, 0.0);
+            roots[2] = std::complex<double>(0.0, 0.0);
+        } else {
+            // Quadratic case: bx^2 + cx + d = 0
+            double discriminant = c*c - 4*b*d;
+            if (discriminant >= 0) {
+                double sqrt_disc = std::sqrt(discriminant);
+                roots[0] = std::complex<double>((-c + sqrt_disc) / (2 * b), 0.0);
+                roots[1] = std::complex<double>((-c - sqrt_disc) / (2 * b), 0.0);
+            } else {
+                double sqrt_disc = std::sqrt(-discriminant);
+                roots[0] = std::complex<double>(-c / (2 * b), sqrt_disc / (2 * b));
+                roots[1] = std::complex<double>(-c / (2 * b), -sqrt_disc / (2 * b));
+            }
+            roots[2] = std::complex<double>(0.0, 0.0);
+        }
+        return roots;
+    }
+    
+    // Standard cubic case
+    // First, convert to depressed cubic t^3 + pt + q = 0
+    b /= a;
+    c /= a;
+    d /= a;
+    
+    double p = c - b*b/3;
+    double q = d - b*c/3 + 2*b*b*b/27;
+    double disc = q*q/4 + p*p*p/27;
+    
+    std::vector<std::complex<double>> roots(3);
+    
+    // Handle different cases based on discriminant
+    if (std::abs(disc) < 1e-10) {
+        // Discriminant is zero, potential multiple roots
+        if (std::abs(p) < 1e-10 && std::abs(q) < 1e-10) {
+            // Triple root
+            roots[0] = roots[1] = roots[2] = std::complex<double>(-b/3, 0.0);
+        } else {
+            // One double root and one single root
+            double u;
+            if (q > 0) u = -std::cbrt(q/2);
+            else u = std::cbrt(-q/2);
+            
+            roots[0] = std::complex<double>(2*u - b/3, 0.0);
+            roots[1] = roots[2] = std::complex<double>(-u - b/3, 0.0);
+        }
+    } else if (disc > 0) {
+        // One real root and two complex conjugate roots
+        double u = std::cbrt(-q/2 + std::sqrt(disc));
+        double v = std::cbrt(-q/2 - std::sqrt(disc));
+        
+        roots[0] = std::complex<double>(u + v - b/3, 0.0);
+        
+        double real_part = -(u + v)/2 - b/3;
+        double imag_part = std::sqrt(3) * (u - v) / 2;
+        
+        roots[1] = std::complex<double>(real_part, imag_part);
+        roots[2] = std::complex<double>(real_part, -imag_part);
+    } else {
+        // Three distinct real roots
+        double theta = std::acos(-q/2 * std::sqrt(-27/(p*p*p)));
+        double coef = 2 * std::sqrt(-p/3);
+        
+        roots[0] = std::complex<double>(coef * std::cos(theta/3) - b/3, 0.0);
+        roots[1] = std::complex<double>(coef * std::cos((theta + 2*M_PI)/3) - b/3, 0.0);
+        roots[2] = std::complex<double>(coef * std::cos((theta + 4*M_PI)/3) - b/3, 0.0);
+    }
+    
+    return roots;
+}
 // Python module definition
 PYBIND11_MODULE(cubic_cpp, m) {
     m.doc() = "C++ accelerated functions for cubic root analysis";
@@ -736,4 +823,7 @@ PYBIND11_MODULE(cubic_cpp, m) {
     m.def("generate_eigenvalue_distribution", &generate_eigenvalue_distribution,
           "Generate eigenvalue distribution for a specific beta",
           py::arg("beta"), py::arg("y"), py::arg("z_a"), py::arg("n"), py::arg("seed"));
+    m.def("compute_cubic_roots", &compute_cubic_roots,
+      "Compute the roots of the cubic equation",
+      py::arg("z"), py::arg("beta"), py::arg("z_a"), py::arg("y"));
 }
