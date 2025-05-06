@@ -14,7 +14,26 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+# Add at the beginning of app.py, before the import attempt
+import os
+import sys
 
+# Try to find the module in common locations
+module_locations = [
+    os.getcwd(),
+    os.path.dirname(os.path.abspath(__file__)),
+    '/home/user/app',
+    '/home/user/a'
+]
+
+for loc in module_locations:
+    if loc not in sys.path:
+        sys.path.insert(0, loc)
+    
+    # Check for the module file
+    for ext in ['.so', '.cpython-310-x86_64-linux-gnu.so', '.cpython-310-aarch64-linux-gnu.so']:
+        if os.path.exists(os.path.join(loc, f'cubic_cpp{ext}')):
+            print(f"Found module at: {os.path.join(loc, f'cubic_cpp{ext}')}")
 # Try to import C++ module
 try:
     import cubic_cpp
