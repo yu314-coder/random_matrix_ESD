@@ -11,14 +11,15 @@ import sys
 import importlib.util
 import time
 from datetime import timedelta
-
+import mpmath 
 # Configure Streamlit for Hugging Face Spaces
 st.set_page_config(
     page_title="Cubic Root Analysis (C++ Accelerated)",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
+# Set decimal precision to 50 digits
+mpmath.mp.dps = 50
 # Create a class for advanced progress tracking
 class AdvancedProgressBar:
     def __init__(self, total_steps, description="Processing", auto_refresh=True):
@@ -2013,7 +2014,7 @@ if cpp_compiled:
 else:
     st.warning("⚠️ C++ module compilation failed. Falling back to Python implementations with high precision SymPy calculations.")
 
-st.info(f"Using SymPy with {sp.mpmath.mp.dps} decimal digits of precision for accurate calculations.")
+st.info(f"Using high precision calculations with {mpmath.mp.dps} decimal digits for accurate results.")
 
 # Define three tabs
 tab1, tab2, tab3 = st.tabs(["z*(β) Curves", "Complex Root Analysis", "Differential Analysis"])
