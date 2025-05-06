@@ -66,73 +66,7 @@ except ImportError as e:
     except Exception as compile_error:
         print(f"Failed to compile C++ module: {compile_error}")
         cpp_available = False
-# Use C++ implementations if available, otherwise use Python implementations
-if cpp_available:
-    # Start with all Python implementations
-    discriminant_func = discriminant_func_py
-    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
-    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
-    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
-    compute_cubic_roots = compute_cubic_roots_py
-    compute_high_y_curve = compute_high_y_curve_py
-    compute_alternate_low_expr = compute_alternate_low_expr_py
-    compute_max_k_expression = compute_max_k_expression_py
-    compute_min_t_expression = compute_min_t_expression_py
-    compute_derivatives = compute_derivatives_py
-    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
-    
-    # Now override with C++ implementations if they exist
-    try:
-        # Check each C++ function individually
-        if hasattr(cubic_cpp, "discriminant_func"):
-            discriminant_func = cubic_cpp.discriminant_func
-            
-        if hasattr(cubic_cpp, "find_z_at_discriminant_zero"):
-            find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
-            
-        if hasattr(cubic_cpp, "sweep_beta_and_find_z_bounds"):
-            sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
-            
-        if hasattr(cubic_cpp, "compute_eigenvalue_support_boundaries"):
-            compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
-            
-        if hasattr(cubic_cpp, "compute_cubic_roots"):
-            compute_cubic_roots = cubic_cpp.compute_cubic_roots
-            
-        if hasattr(cubic_cpp, "compute_high_y_curve"):
-            compute_high_y_curve = cubic_cpp.compute_high_y_curve
-            
-        if hasattr(cubic_cpp, "compute_alternate_low_expr"):
-            compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
-            
-        if hasattr(cubic_cpp, "compute_max_k_expression"):
-            compute_max_k_expression = cubic_cpp.compute_max_k_expression
-            
-        if hasattr(cubic_cpp, "compute_min_t_expression"):
-            compute_min_t_expression = cubic_cpp.compute_min_t_expression
-            
-        if hasattr(cubic_cpp, "compute_derivatives"):
-            compute_derivatives = cubic_cpp.compute_derivatives
-            
-        if hasattr(cubic_cpp, "generate_eigenvalue_distribution"):
-            generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
-            
-        print("Using C++ acceleration for available functions")
-    except Exception as e:
-        print(f"Error setting up C++ functions: {e}")
-else:
-    # Use all Python implementations
-    discriminant_func = discriminant_func_py
-    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
-    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
-    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
-    compute_cubic_roots = compute_cubic_roots_py
-    compute_high_y_curve = compute_high_y_curve_py
-    compute_alternate_low_expr = compute_alternate_low_expr_py
-    compute_max_k_expression = compute_max_k_expression_py
-    compute_min_t_expression = compute_min_t_expression_py
-    compute_derivatives = compute_derivatives_py
-    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
+
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
     return expr_str.replace('sqrt(', 'sp.sqrt(')
@@ -1123,7 +1057,31 @@ def generate_eigenvalue_distribution_plot(beta, y, z_a, n=1000, seed=42):
     )
     
     return fig, eigenvalues
-
+# Use C++ implementations if available, otherwise use Python implementations
+if cpp_available:
+    discriminant_func = cubic_cpp.discriminant_func
+    find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
+    sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
+    compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
+    compute_cubic_roots = cubic_cpp.compute_cubic_roots
+    compute_high_y_curve = cubic_cpp.compute_high_y_curve
+    compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
+    compute_max_k_expression = cubic_cpp.compute_max_k_expression
+    compute_min_t_expression = cubic_cpp.compute_min_t_expression
+    compute_derivatives = cubic_cpp.compute_derivatives
+    generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+else:
+    discriminant_func = discriminant_func_py
+    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
+    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
+    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
+    compute_cubic_roots = compute_cubic_roots_py
+    compute_high_y_curve = compute_high_y_curve_py
+    compute_alternate_low_expr = compute_alternate_low_expr_py
+    compute_max_k_expression = compute_max_k_expression_py
+    compute_min_t_expression = compute_min_t_expression_py
+    compute_derivatives = compute_derivatives_py
+    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
 # ----------------- Streamlit UI -----------------
 def main():
     st.title("Cubic Root Analysis")
