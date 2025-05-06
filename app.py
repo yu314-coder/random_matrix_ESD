@@ -19,9 +19,10 @@ st.set_page_config(
 try:
     import cubic_cpp
     cpp_available = True
-    st.success("✅ C++ acceleration active")
+    # Print the location of the imported module to verify
+    print(f"Loaded C++ module from: {cubic_cpp.__file__}")
 except ImportError as e:
-    st.warning(f"⚠️ C++ acceleration unavailable: {str(e)}")
+    print(f"C++ acceleration unavailable: {e}")
     cpp_available = False
 
 def add_sqrt_support(expr_str):
