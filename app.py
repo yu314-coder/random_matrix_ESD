@@ -104,7 +104,9 @@ class AdvancedProgressBar:
         self.eta_metric.empty()
 
 # Initialize sympy precision settings for higher accuracy
-sp.mpmath.mp.dps = 50  # Set decimal precision to 50 digits
+# With these lines:
+import mpmath
+mpmath.mp.dps = 50  # Set decimal precision to 50 digits
 
 # Check if C++ module is already compiled, otherwise compile it
 cpp_compiled = False
