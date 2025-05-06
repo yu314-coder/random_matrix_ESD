@@ -1,36 +1,37 @@
-FROM python:3.9
+FROM python:3.9-slim
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    cmake \
     python3-dev \
     libeigen3-dev \
     python3-pybind11 \
     && rm -rf /var/lib/apt/lists/*
 
-# Debug: List installed packages
-RUN python -m pip list
-
-# Copy all files at once to maintain relationships
-COPY . .
-
-# Install Python dependencies
+# Copy files
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Build the C++ extension with verbose output
-RUN python -m pip install -e . --verbose
+# Copy C++ source and app
+COPY cubic_cpp.cpp app.py ./
 
-# Verify the extension exists after building
-RUN python -c "import os; print('Contents of directory:'); print(os.listdir('.')); \
-    print('Looking for .so files:'); print([f for f in os.listdir('.') if f.endswith('.so')]); \
-    print('Python path:'); import sys; print(sys.path)"
-
-# Check if the module can be imported
-RUN python -c "try: import cubic_cpp; print('✓ Successfully imported cubic_cpp'); \
-    except ImportError as e: print(f'✗ Import failed: {e}')"
+# Get Python and pybind11 include paths directly
+RUN PYTHON_INCLUDE_PATH=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))") && \
+    PYBIND11_INCLUDE_PATH=$(python3 -c "import pybind11; print(pybind11.get_include())") && \
+    NUMPY_INCLUDE_PATH=$(python3 -c "import numpy; print(numpy.get_include())") && \
+    # Compile the C++ module directly to a shared library
+    g++ -O3 -Wall -shared -std=c++11 -fPIC \
+    $(python3-config --includes) \
+    -I${PYBIND11_INCLUDE_PATH} \
+    -I${NUMPY_INCLUDE_PATH} \
+    cubic_cpp.cpp \
+    -o cubic_cpp$(python3-config --extension-suffix) && \
+    # Verify the module was created
+    ls -la && \
+    # Test the import 
+    python3 -c "import cubic_cpp; print('C++ module imported successfully')"
 
 # Run the application
 CMD ["streamlit", "run", "app.py"]
