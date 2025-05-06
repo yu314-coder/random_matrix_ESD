@@ -22,7 +22,10 @@ try:
     # Print the location of the imported module to verify
     print(f"Loaded C++ module from: {cubic_cpp.__file__}")
 except ImportError as e:
+    import sys
     print(f"C++ acceleration unavailable: {e}")
+    print(f"Python path: {sys.path}")
+    print(f"Current directory: {os.getcwd()}")
     cpp_available = False
 
 def add_sqrt_support(expr_str):
