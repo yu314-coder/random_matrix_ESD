@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.9
 
 WORKDIR /app
 
@@ -11,14 +11,16 @@ RUN apt-get update && apt-get install -y \
     python3-pybind11 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy files
-COPY requirements.txt cubic_cpp.cpp setup.py app.py ./
-
-# Install Python requirements
+# Copy and install requirements first (for better caching)
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Build the C++ extension
+# Copy C++ extension files and build them
+COPY cubic_cpp.cpp setup.py .
 RUN pip install -e .
+
+# Copy the rest of the application
+COPY . .
 
 # Run the application
 CMD ["streamlit", "run", "app.py"]
