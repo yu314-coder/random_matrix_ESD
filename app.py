@@ -7,6 +7,7 @@ from scipy.stats import gaussian_kde
 import sys
 import os
 import importlib.util
+import subprocess
 
 # Configure Streamlit for Hugging Face Spaces - THIS MUST COME FIRST
 st.set_page_config(
@@ -15,28 +16,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Try to import C++ module
-try:
-    import cubic_cpp
-    cpp_available = True
-    # Print the location of the imported module to verify
-    print(f"Loaded C++ module from: {cubic_cpp.__file__}")
-except ImportError as e:
-    print(f"C++ acceleration unavailable: {e}")
-    print(f"Python path: {sys.path}")
-    print(f"Current directory: {os.getcwd()}")
-    
-    # Try to compile the module on the fly
+# Function to dynamically compile the C++ module
+def compile_cpp_module():
     try:
-        import subprocess
-        
-        print("Attempting to compile C++ module at runtime...")
-        
-        # Get the extension suffix for this Python version
+        print("Attempting to compile C++ module...")
+        # Get extension suffix
         ext_suffix = subprocess.check_output("python3-config --extension-suffix", shell=True).decode().strip()
         print(f"Extension suffix: {ext_suffix}")
         
-        # Compile command with C++17
+        # Compile command using C++17
         compile_cmd = f"""g++ -O3 -shared -std=c++17 -fPIC \
             $(python3-config --includes) \
             -I$(python3 -c "import pybind11; print(pybind11.get_include())") \
@@ -49,23 +37,39 @@ except ImportError as e:
         
         if result.returncode == 0:
             print("Compilation successful")
-            # Try to import again
-            sys.path.insert(0, os.getcwd())  # Ensure current directory is in path
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("cubic_cpp", os.path.join(os.getcwd(), "cubic_cpp" + ext_suffix))
+            # Try to import the newly compiled module
+            spec = importlib.util.spec_from_file_location(
+                "cubic_cpp", 
+                os.path.join(os.getcwd(), "cubic_cpp" + ext_suffix)
+            )
             if spec:
                 cubic_cpp = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(cubic_cpp)
-                cpp_available = True
                 print(f"Successfully imported compiled module")
-            else:
-                raise ImportError(f"Failed to load module spec for cubic_cpp")
+                return cubic_cpp
         else:
             print(f"Compilation failed: {result.stderr}")
-            raise RuntimeError(f"C++ compilation failed: {result.stderr}")
-    except Exception as compile_error:
-        print(f"Failed to compile C++ module: {compile_error}")
-        cpp_available = False
+    except Exception as e:
+        print(f"Error during compilation: {e}")
+    
+    return None
+
+# Try to import or compile the C++ module
+try:
+    import cubic_cpp
+    print(f"Loaded existing C++ module from: {cubic_cpp.__file__}")
+    cpp_available = True
+except ImportError:
+    print("C++ acceleration unavailable: No module named 'cubic_cpp'")
+    print(f"Python path: {sys.path}")
+    print(f"Current directory: {os.getcwd()}")
+    
+    # Try to compile the module
+    cubic_cpp = compile_cpp_module()
+    cpp_available = cubic_cpp is not None
+    
+    if cpp_available:
+        print(f"Loaded C++ module from: {cubic_cpp.__file__}")
 
 def add_sqrt_support(expr_str):
     """Replace 'sqrt(' with 'sp.sqrt(' for sympy compatibility"""
@@ -90,8 +94,7 @@ Delta_expr = (
     + (c_sym/(3*a_sym) - (b_sym**2)/(9*a_sym**2))**3
 )
 
-# Define fallback Python implementations for all functions
-# These will be used if C++ module is unavailable
+# Define Python implementations for all functions
 
 def discriminant_func_py(z, beta, z_a, y):
     """Fast numeric function for the discriminant"""
@@ -411,20 +414,30 @@ def generate_eigenvalue_distribution_py(beta, y, z_a, n=1000, seed=42):
     eigenvalues = np.linalg.eigvalsh(B_n)
     return eigenvalues
 
-# Use C++ implementations if available, otherwise use Python implementations
+# Now determine which functions to use
 if cpp_available:
-    discriminant_func = cubic_cpp.discriminant_func
-    find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
-    sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
-    compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
-    compute_cubic_roots = cubic_cpp.compute_cubic_roots
-    compute_high_y_curve = cubic_cpp.compute_high_y_curve
-    compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
-    compute_max_k_expression = cubic_cpp.compute_max_k_expression
-    compute_min_t_expression = cubic_cpp.compute_min_t_expression
-    compute_derivatives = cubic_cpp.compute_derivatives
-    generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+    # Get list of available C++ functions
+    cpp_functions = [name for name in dir(cubic_cpp) if not name.startswith('_')]
+    print(f"Available C++ functions: {cpp_functions}")
+    
+    # Assign function implementations based on what's available
+    discriminant_func = cubic_cpp.discriminant_func if 'discriminant_func' in cpp_functions else discriminant_func_py
+    find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero if 'find_z_at_discriminant_zero' in cpp_functions else find_z_at_discriminant_zero_py
+    sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds if 'sweep_beta_and_find_z_bounds' in cpp_functions else sweep_beta_and_find_z_bounds_py
+    compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries if 'compute_eigenvalue_support_boundaries' in cpp_functions else compute_eigenvalue_support_boundaries_py
+    compute_cubic_roots = cubic_cpp.compute_cubic_roots if 'compute_cubic_roots' in cpp_functions else compute_cubic_roots_py
+    compute_high_y_curve = cubic_cpp.compute_high_y_curve if 'compute_high_y_curve' in cpp_functions else compute_high_y_curve_py
+    compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr if 'compute_alternate_low_expr' in cpp_functions else compute_alternate_low_expr_py
+    compute_max_k_expression = cubic_cpp.compute_max_k_expression if 'compute_max_k_expression' in cpp_functions else compute_max_k_expression_py
+    compute_min_t_expression = cubic_cpp.compute_min_t_expression if 'compute_min_t_expression' in cpp_functions else compute_min_t_expression_py
+    compute_derivatives = cubic_cpp.compute_derivatives if 'compute_derivatives' in cpp_functions else compute_derivatives_py
+    
+    if 'generate_eigenvalue_distribution' in cpp_functions:
+        generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
+    else:
+        generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
 else:
+    # Use all Python implementations
     discriminant_func = discriminant_func_py
     find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
     sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
@@ -1057,84 +1070,7 @@ def generate_eigenvalue_distribution_plot(beta, y, z_a, n=1000, seed=42):
     )
     
     return fig, eigenvalues
-# Use C++ implementations if available, otherwise use Python implementations
-if cpp_available:
-    # First check which functions actually exist in the C++ module
-    available_cpp_functions = []
-    for func_name in dir(cubic_cpp):
-        if not func_name.startswith('_'):
-            available_cpp_functions.append(func_name)
-    
-    print(f"Available C++ functions: {available_cpp_functions}")
-    
-    # Now assign functions based on what's available
-    if "discriminant_func" in available_cpp_functions:
-        discriminant_func = cubic_cpp.discriminant_func
-    else:
-        discriminant_func = discriminant_func_py
-        
-    if "find_z_at_discriminant_zero" in available_cpp_functions:
-        find_z_at_discriminant_zero = cubic_cpp.find_z_at_discriminant_zero
-    else:
-        find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
-        
-    if "sweep_beta_and_find_z_bounds" in available_cpp_functions:
-        sweep_beta_and_find_z_bounds = cubic_cpp.sweep_beta_and_find_z_bounds
-    else:
-        sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
-        
-    if "compute_eigenvalue_support_boundaries" in available_cpp_functions:
-        compute_eigenvalue_support_boundaries = cubic_cpp.compute_eigenvalue_support_boundaries
-    else:
-        compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
-        
-    if "compute_cubic_roots" in available_cpp_functions:
-        compute_cubic_roots = cubic_cpp.compute_cubic_roots
-    else:
-        compute_cubic_roots = compute_cubic_roots_py
-        
-    if "compute_high_y_curve" in available_cpp_functions:
-        compute_high_y_curve = cubic_cpp.compute_high_y_curve
-    else:
-        compute_high_y_curve = compute_high_y_curve_py
-        
-    if "compute_alternate_low_expr" in available_cpp_functions:
-        compute_alternate_low_expr = cubic_cpp.compute_alternate_low_expr
-    else:
-        compute_alternate_low_expr = compute_alternate_low_expr_py
-        
-    if "compute_max_k_expression" in available_cpp_functions:
-        compute_max_k_expression = cubic_cpp.compute_max_k_expression
-    else:
-        compute_max_k_expression = compute_max_k_expression_py
-        
-    if "compute_min_t_expression" in available_cpp_functions:
-        compute_min_t_expression = cubic_cpp.compute_min_t_expression
-    else:
-        compute_min_t_expression = compute_min_t_expression_py
-        
-    if "compute_derivatives" in available_cpp_functions:
-        compute_derivatives = cubic_cpp.compute_derivatives
-    else:
-        compute_derivatives = compute_derivatives_py
-        
-    if "generate_eigenvalue_distribution" in available_cpp_functions:
-        generate_eigenvalue_distribution = lambda beta, y, z_a, n=1000, seed=42: cubic_cpp.generate_eigenvalue_distribution(beta, y, z_a, n, seed)
-    else:
-        generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
-else:
-    # Use all Python implementations
-    discriminant_func = discriminant_func_py
-    find_z_at_discriminant_zero = find_z_at_discriminant_zero_py
-    sweep_beta_and_find_z_bounds = sweep_beta_and_find_z_bounds_py
-    compute_eigenvalue_support_boundaries = compute_eigenvalue_support_boundaries_py
-    compute_cubic_roots = compute_cubic_roots_py
-    compute_high_y_curve = compute_high_y_curve_py
-    compute_alternate_low_expr = compute_alternate_low_expr_py
-    compute_max_k_expression = compute_max_k_expression_py
-    compute_min_t_expression = compute_min_t_expression_py
-    compute_derivatives = compute_derivatives_py
-    generate_eigenvalue_distribution = generate_eigenvalue_distribution_py
+
 # ----------------- Streamlit UI -----------------
 def main():
     st.title("Cubic Root Analysis")
