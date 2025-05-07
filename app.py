@@ -3,6 +3,7 @@ import subprocess
 import os
 from PIL import Image
 import time
+import pathlib
 
 # Set page config
 st.set_page_config(
@@ -19,8 +20,10 @@ Adjust the parameters below to generate a plot showing the relationship between 
 and theoretical eigenvalues.
 """)
 
-# Create output directory if it doesn't exist
-os.makedirs("/app/output", exist_ok=True)
+# Create output directory in the current working directory
+current_dir = os.getcwd()
+output_dir = os.path.join(current_dir, "output")
+os.makedirs(output_dir, exist_ok=True)
 
 # Input parameters sidebar
 st.sidebar.header("Parameters")
@@ -40,7 +43,7 @@ if st.sidebar.button("Generate Plot", type="primary"):
     # Show progress
     with st.spinner("Generating eigenvalue analysis plot... This may take a few moments."):
         # Run the C++ executable with the parameters
-        output_file = "/app/output/eigenvalue_analysis.png"
+        output_file = os.path.join(output_dir, "eigenvalue_analysis.png")
         
         # Delete previous output if exists
         if os.path.exists(output_file):
@@ -48,7 +51,10 @@ if st.sidebar.button("Generate Plot", type="primary"):
         
         # Execute the C++ program
         try:
-            cmd = ["/app/eigen_analysis", str(n), str(p), str(a), str(y)]
+            # Path to executable is in the same directory
+            executable_path = os.path.join(current_dir, "eigen_analysis")
+            cmd = [executable_path, str(n), str(p), str(a), str(y), output_file]
+            
             process = subprocess.Popen(
                 cmd, 
                 stdout=subprocess.PIPE,
@@ -96,13 +102,14 @@ if st.sidebar.button("Generate Plot", type="primary"):
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
 
-# Show example plot on startup
-if not os.path.exists("/app/output/eigenvalue_analysis.png"):
+# Show example plot on startup or previous results
+example_file = os.path.join(output_dir, "eigenvalue_analysis.png")
+if not os.path.exists(example_file):
     st.info("👈 Set parameters and click 'Generate Plot' to create a visualization.")
 else:
     # Show the most recent plot by default
     st.subheader("Current Plot")
-    img = Image.open("/app/output/eigenvalue_analysis.png")
+    img = Image.open(example_file)
     st.image(img, use_column_width=True)
 
 # Add information about the analysis
