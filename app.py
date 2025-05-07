@@ -467,15 +467,13 @@ with tab1:
                                     'yanchor': 'top'
                                 },
                                 xaxis={
-                                    'title': 'β Parameter',
-                                    'titlefont': {'size': 18, 'color': '#424242'},
+                                    'title': {'text': 'β Parameter', 'font': {'size': 18, 'color': '#424242'}},
                                     'tickfont': {'size': 14},
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True
                                 },
                                 yaxis={
-                                    'title': 'Eigenvalues',
-                                    'titlefont': {'size': 18, 'color': '#424242'},
+                                    'title': {'text': 'Eigenvalues', 'font': {'size': 18, 'color': '#424242'}},
                                     'tickfont': {'size': 14},
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True
@@ -647,15 +645,13 @@ with tab1:
                             'yanchor': 'top'
                         },
                         xaxis={
-                            'title': 'β Parameter',
-                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'title': {'text': 'β Parameter', 'font': {'size': 18, 'color': '#424242'}},
                             'tickfont': {'size': 14},
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True
                         },
                         yaxis={
-                            'title': 'Eigenvalues',
-                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'title': {'text': 'Eigenvalues', 'font': {'size': 18, 'color': '#424242'}},
                             'tickfont': {'size': 14},
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True
@@ -848,16 +844,14 @@ with tab2:
                                     'yanchor': 'top'
                                 },
                                 xaxis={
-                                    'title': 'z (logarithmic scale)',
-                                    'titlefont': {'size': 18, 'color': '#424242'},
+                                    'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
                                     'tickfont': {'size': 14},
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True,
                                     'type': 'log'  # Use logarithmic scale for better visualization
                                 },
                                 yaxis={
-                                    'title': 'Im(s)',
-                                    'titlefont': {'size': 18, 'color': '#424242'},
+                                    'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
                                     'tickfont': {'size': 14},
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True
@@ -991,16 +985,14 @@ with tab2:
                             'yanchor': 'top'
                         },
                         xaxis={
-                            'title': 'z (logarithmic scale)',
-                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
                             'tickfont': {'size': 14},
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True,
                             'type': 'log'  # Use logarithmic scale for better visualization
                         },
                         yaxis={
-                            'title': 'Im(s)',
-                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
                             'tickfont': {'size': 14},
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True
