@@ -3,7 +3,7 @@ import subprocess
 import os
 from PIL import Image
 import time
-import pathlib
+import numpy as np
 
 # Set page config
 st.set_page_config(
@@ -24,6 +24,50 @@ and theoretical eigenvalues.
 current_dir = os.getcwd()
 output_dir = os.path.join(current_dir, "output")
 os.makedirs(output_dir, exist_ok=True)
+
+# Compile the C++ code at runtime
+cpp_file = os.path.join(current_dir, "app.cpp")
+executable = os.path.join(current_dir, "eigen_analysis")
+
+# Check if cpp file exists
+if not os.path.exists(cpp_file):
+    st.error(f"C++ source file not found at: {cpp_file}")
+    st.stop()
+
+# Compile the C++ code
+try:
+    compile_cmd = f"g++ -o {executable} {cpp_file} $(pkg-config --cflags --libs opencv4) -std=c++11"
+    compile_result = subprocess.run(
+        compile_cmd, 
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+    
+    if compile_result.returncode != 0:
+        st.error(f"Failed to compile C++ code: {compile_result.stderr}")
+        st.info("Attempting alternate compilation command...")
+        
+        # Try alternate compilation without pkg-config
+        compile_cmd = f"g++ -o {executable} {cpp_file} -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -std=c++11"
+        compile_result = subprocess.run(
+            compile_cmd, 
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        if compile_result.returncode != 0:
+            st.error(f"Failed to compile with alternate command: {compile_result.stderr}")
+            st.stop()
+    
+    # Make sure the executable is executable
+    os.chmod(executable, 0o755)
+    st.success("C++ code compiled successfully")
+    
+except Exception as e:
+    st.error(f"Error during compilation: {str(e)}")
+    st.stop()
 
 # Input parameters sidebar
 st.sidebar.header("Parameters")
@@ -51,9 +95,7 @@ if st.sidebar.button("Generate Plot", type="primary"):
         
         # Execute the C++ program
         try:
-            # Path to executable is in the same directory
-            executable_path = os.path.join(current_dir, "eigen_analysis")
-            cmd = [executable_path, str(n), str(p), str(a), str(y), output_file]
+            cmd = [executable, str(n), str(p), str(a), str(y), output_file]
             
             process = subprocess.Popen(
                 cmd, 
