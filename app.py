@@ -75,8 +75,8 @@ except Exception as e:
 st.sidebar.header("Parameters")
 
 # Parameter inputs with defaults and validation
-n = st.sidebar.number_input("Sample size (n)", min_value=5, max_value=1000, value=100, step=5, help="Number of samples")
-p = st.sidebar.number_input("Dimension (p)", min_value=5, max_value=1000, value=50, step=5, help="Dimensionality")
+n = st.sidebar.number_input("Sample size (n)", min_value=5, max_value=100000, value=100, step=5, help="Number of samples")
+p = st.sidebar.number_input("Dimension (p)", min_value=5, max_value=1000000, value=50, step=5, help="Dimensionality")
 a = st.sidebar.number_input("Value for a", min_value=1.1, max_value=10.0, value=2.0, step=0.1, help="Parameter a > 1")
 
 # Automatically calculate y = p/n (as requested)
