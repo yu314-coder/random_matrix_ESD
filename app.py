@@ -3,7 +3,9 @@ import subprocess
 import os
 from PIL import Image
 import time
+import io
 import numpy as np
+import tempfile
 
 # Set page config
 st.set_page_config(
@@ -34,9 +36,9 @@ if not os.path.exists(cpp_file):
     st.error(f"C++ source file not found at: {cpp_file}")
     st.stop()
 
-# Compile the C++ code
+# Compile the C++ code (we now have the required packages from packages.txt)
 try:
-    compile_cmd = f"g++ -o {executable} {cpp_file} $(pkg-config --cflags --libs opencv4) -std=c++11"
+    compile_cmd = f"g++ -o {executable} {cpp_file} `pkg-config --cflags --libs opencv4` -std=c++11"
     compile_result = subprocess.run(
         compile_cmd, 
         shell=True,
@@ -46,10 +48,10 @@ try:
     
     if compile_result.returncode != 0:
         st.error(f"Failed to compile C++ code: {compile_result.stderr}")
+        # Try alternate compiler flag
         st.info("Attempting alternate compilation command...")
         
-        # Try alternate compilation without pkg-config
-        compile_cmd = f"g++ -o {executable} {cpp_file} -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -std=c++11"
+        compile_cmd = f"g++ -o {executable} {cpp_file} `pkg-config --cflags --libs opencv` -std=c++11"
         compile_result = subprocess.run(
             compile_cmd, 
             shell=True,
@@ -58,8 +60,18 @@ try:
         )
         
         if compile_result.returncode != 0:
-            st.error(f"Failed to compile with alternate command: {compile_result.stderr}")
-            st.stop()
+            # Try with direct linking
+            compile_cmd = f"g++ -o {executable} {cpp_file} -I/usr/include/opencv4 -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -std=c++11"
+            compile_result = subprocess.run(
+                compile_cmd, 
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            
+            if compile_result.returncode != 0:
+                st.error(f"All compilation attempts failed. Last error: {compile_result.stderr}")
+                st.stop()
     
     # Make sure the executable is executable
     os.chmod(executable, 0o755)
