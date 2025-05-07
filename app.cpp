@@ -1,4 +1,4 @@
-// app.cpp - Modified version of eigen_analysis_corrected.cpp for Streamlit integration
+// app.cpp - Modified version for Hugging Face Spaces
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -9,12 +9,13 @@
 #include <vector>
 #include <limits>
 #include <sstream>
+#include <string>
 
 // Function to compute the theoretical max value
 double compute_theoretical_max(double a, double y, double beta) {
     auto f = [a, y, beta](double k) -> double {
         return (y * beta * (a - 1) * k + (a * k + 1) * ((y - 1) * k - 1)) / 
-               ((a * k + 1) * (k * k + k));  // Divide by y here
+               ((a * k + 1) * (k * k + k));
     };
     
     // Use numerical optimization to find the maximum
@@ -62,7 +63,7 @@ double compute_theoretical_max(double a, double y, double beta) {
 double compute_theoretical_min(double a, double y, double beta) {
     auto f = [a, y, beta](double t) -> double {
         return (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / 
-               ((a * t + 1) * (t * t + t) * y);  // Divide by y here
+               ((a * t + 1) * (t * t + t) * y);
     };
     
     // Use numerical optimization to find the minimum
@@ -111,8 +112,8 @@ double compute_theoretical_min(double a, double y, double beta) {
 
 int main(int argc, char* argv[]) {
     // ─── Inputs from command line ───────────────────────────────────────────
-    if (argc != 5) {
-        std::cerr << "Usage: " << argv[0] << " <n> <p> <a> <y>" << std::endl;
+    if (argc != 6) {
+        std::cerr << "Usage: " << argv[0] << " <n> <p> <a> <y> <output_file>" << std::endl;
         return 1;
     }
     
@@ -120,10 +121,12 @@ int main(int argc, char* argv[]) {
     int p = std::stoi(argv[2]);
     double a = std::stod(argv[3]);
     double y = std::stod(argv[4]);
+    std::string output_file = argv[5];
     const double b = 1.0;
     
     std::cout << "Running with parameters: n = " << n << ", p = " << p 
               << ", a = " << a << ", y = " << y << std::endl;
+    std::cout << "Output will be saved to: " << output_file << std::endl;
     
     // ─── Beta range parameters ────────────────────────────────────────
     const int num_beta_points = 100; // More points for smoother curves
@@ -453,9 +456,8 @@ int main(int argc, char* argv[]) {
                 cv::FONT_HERSHEY_COMPLEX, 0.8, cv::Scalar(0, 0, 0), 1);
     
     // ─── Save the image to the output directory ───────────────────────────
-    std::string output_path = "/app/output/eigenvalue_analysis.png";
-    cv::imwrite(output_path, canvas);
-    std::cout << "Plot saved as " << output_path << std::endl;
+    cv::imwrite(output_file, canvas);
+    std::cout << "Plot saved as " << output_file << std::endl;
     
     return 0;
 }
