@@ -1,4 +1,4 @@
-// app.cpp - Modified version for command line arguments
+// app.cpp - Modified version for command line arguments with improvements
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -12,6 +12,7 @@
 #include <string>
 #include <fstream>
 #include <complex>
+#include <stdexcept>
 
 // Struct to hold cubic equation roots
 struct CubicRoots {
@@ -23,21 +24,35 @@ struct CubicRoots {
 // Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
 CubicRoots solveCubic(double a, double b, double c, double d) {
     // Handle special case for a == 0 (quadratic)
-    if (std::abs(a) < 1e-14) {
+    const double epsilon = 1e-14;
+    if (std::abs(a) < epsilon) {
         CubicRoots roots;
         // For a quadratic equation: bz^2 + cz + d = 0
+        if (std::abs(b) < epsilon) {  // Linear equation or constant
+            if (std::abs(c) < epsilon) {  // Constant - no finite roots
+                roots.root1 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
+                roots.root2 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
+                roots.root3 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
+            } else {  // Linear equation
+                roots.root1 = std::complex<double>(-d / c, 0.0);
+                roots.root2 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
+                roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
+            }
+            return roots;
+        }
+        
         double discriminant = c * c - 4.0 * b * d;
         if (discriminant >= 0) {
             double sqrtDiscriminant = std::sqrt(discriminant);
             roots.root1 = std::complex<double>((-c + sqrtDiscriminant) / (2.0 * b), 0.0);
             roots.root2 = std::complex<double>((-c - sqrtDiscriminant) / (2.0 * b), 0.0);
-            roots.root3 = std::complex<double>(1e99, 0.0); // Infinity for third root
+            roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
         } else {
             double real = -c / (2.0 * b);
             double imag = std::sqrt(-discriminant) / (2.0 * b);
             roots.root1 = std::complex<double>(real, imag);
             roots.root2 = std::complex<double>(real, -imag);
-            roots.root3 = std::complex<double>(1e99, 0.0); // Infinity for third root
+            roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
         }
         return roots;
     }
@@ -61,7 +76,7 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
 
     CubicRoots roots;
 
-    if (D > 1e-10) { // One real root and two complex conjugate roots
+    if (D > epsilon) { // One real root and two complex conjugate roots
         double sqrtD = std::sqrt(D);
         double u = std::cbrt(-q1 / 2.0 + sqrtD);
         double v = std::cbrt(-q1 / 2.0 - sqrtD);
@@ -75,7 +90,7 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         roots.root2 = std::complex<double>(real_part, imag_part);
         roots.root3 = std::complex<double>(real_part, -imag_part);
     } 
-    else if (D < -1e-10) { // Three distinct real roots
+    else if (D < -epsilon) { // Three distinct real roots
         double angle = std::acos(-q1 / 2.0 * std::sqrt(-27.0 / (p1 * p1 * p1)));
         double magnitude = 2.0 * std::sqrt(-p1 / 3.0);
         
@@ -101,7 +116,7 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
     std::vector<double> ims_values2(num_points);
     std::vector<double> ims_values3(num_points);
     
-    // Generate z values from 0 to 10 (or adjust range as needed)
+    // Generate z values from 0.01 to 10 (or adjust range as needed)
     double z_start = 0.01;  // Avoid z=0 to prevent potential division issues
     double z_end = 10.0;
     double z_step = (z_end - z_start) / (num_points - 1);
@@ -135,13 +150,13 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
 }
 
 // Function to save Im(s) vs z data as JSON
-void saveImSDataAsJSON(const std::string& filename, 
+bool saveImSDataAsJSON(const std::string& filename, 
                       const std::vector<std::vector<double>>& data) {
     std::ofstream outfile(filename);
     
     if (!outfile.is_open()) {
         std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-        return;
+        return false;
     }
     
     // Start JSON object
@@ -183,6 +198,7 @@ void saveImSDataAsJSON(const std::string& filename,
     outfile << "}\n";
     
     outfile.close();
+    return true;
 }
 
 // Function to compute the theoretical max value
@@ -283,7 +299,7 @@ double compute_theoretical_min(double a, double y, double beta, int grid_points,
 }
 
 // Function to save data as JSON
-void save_as_json(const std::string& filename, 
+bool save_as_json(const std::string& filename, 
                  const std::vector<double>& beta_values,
                  const std::vector<double>& max_eigenvalues,
                  const std::vector<double>& min_eigenvalues,
@@ -294,7 +310,7 @@ void save_as_json(const std::string& filename,
     
     if (!outfile.is_open()) {
         std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-        return;
+        return false;
     }
     
     // Start JSON object
@@ -344,12 +360,13 @@ void save_as_json(const std::string& filename,
     outfile << "}\n";
     
     outfile.close();
+    return true;
 }
 
 // Eigenvalue analysis function
-void eigenvalueAnalysis(int n, int p, double a, double y, int fineness, 
-                      int theory_grid_points, double theory_tolerance, 
-                      const std::string& output_file) {
+bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness, 
+                     int theory_grid_points, double theory_tolerance, 
+                     const std::string& output_file) {
     
     std::cout << "Running eigenvalue analysis with parameters: n = " << n << ", p = " << p 
               << ", a = " << a << ", y = " << y << ", fineness = " << fineness 
@@ -370,78 +387,105 @@ void eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
     std::vector<double> theoretical_max_values(num_beta_points);
     std::vector<double> theoretical_min_values(num_beta_points);
     
-    // ─── Random‐Gaussian X and S_n ────────────────────────────────
-    std::mt19937_64 rng{std::random_device{}()};
-    std::normal_distribution<double> norm(0.0, 1.0);
-    
-    cv::Mat X(p, n, CV_64F);
-    for(int i = 0; i < p; ++i)
-        for(int j = 0; j < n; ++j)
-            X.at<double>(i,j) = norm(rng);
-    
-    // ─── Process each beta value ─────────────────────────────────
-    for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
-        double beta = beta_values[beta_idx];
+    try {
+        // ─── Random‐Gaussian X and S_n ────────────────────────────────
+        std::random_device rd;
+        std::mt19937_64 rng{rd()};
+        std::normal_distribution<double> norm(0.0, 1.0);
         
-        // Compute theoretical values with customizable precision
-        theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
-        theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
+        cv::Mat X(p, n, CV_64F);
+        for(int i = 0; i < p; ++i)
+            for(int j = 0; j < n; ++j)
+                X.at<double>(i,j) = norm(rng);
         
-        // ─── Build T_n matrix ──────────────────────────────────
-        int k = static_cast<int>(std::floor(beta * p));
-        std::vector<double> diags(p, 1.0);
-        std::fill_n(diags.begin(), k, a);
-        std::shuffle(diags.begin(), diags.end(), rng);
-        
-        cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
-        for(int i = 0; i < p; ++i){
-            T_n.at<double>(i,i) = diags[i];
+        // ─── Process each beta value ─────────────────────────────────
+        for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
+            double beta = beta_values[beta_idx];
+            
+            // Compute theoretical values with customizable precision
+            theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
+            theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
+            
+            // ─── Build T_n matrix ──────────────────────────────────
+            int k = static_cast<int>(std::floor(beta * p));
+            std::vector<double> diags(p, 1.0);
+            std::fill_n(diags.begin(), k, a);
+            std::shuffle(diags.begin(), diags.end(), rng);
+            
+            cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
+            for(int i = 0; i < p; ++i){
+                T_n.at<double>(i,i) = diags[i];
+            }
+            
+            // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
+            cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
+            
+            // ─── Compute eigenvalues of B ────────────────────────────
+            cv::Mat eigVals;
+            cv::eigen(B, eigVals);
+            std::vector<double> eigs(n);  
+            for(int i = 0; i < n; ++i)
+                eigs[i] = eigVals.at<double>(i, 0);
+            
+            max_eigenvalues[beta_idx] = *std::max_element(eigs.begin(), eigs.end());
+            min_eigenvalues[beta_idx] = *std::min_element(eigs.begin(), eigs.end());
+            
+            // Progress indicator for Streamlit
+            double progress = static_cast<double>(beta_idx + 1) / num_beta_points;
+            std::cout << "PROGRESS:" << progress << std::endl;
+            
+            // Less verbose output for Streamlit
+            if (beta_idx % 20 == 0 || beta_idx == num_beta_points - 1) {
+                std::cout << "Processing beta = " << beta 
+                        << " (" << beta_idx+1 << "/" << num_beta_points << ")" << std::endl;
+            }
         }
         
-        // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
-        cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
-        
-        // ─── Compute eigenvalues of B ────────────────────────────
-        cv::Mat eigVals;
-        cv::eigen(B, eigVals);
-        std::vector<double> eigs(n);  
-        for(int i = 0; i < n; ++i)
-            eigs[i] = eigVals.at<double>(i, 0);
-        
-        max_eigenvalues[beta_idx] = *std::max_element(eigs.begin(), eigs.end());
-        min_eigenvalues[beta_idx] = *std::min_element(eigs.begin(), eigs.end());
-        
-        // Progress indicator for Streamlit
-        double progress = static_cast<double>(beta_idx + 1) / num_beta_points;
-        std::cout << "PROGRESS:" << progress << std::endl;
-        
-        // Less verbose output for Streamlit
-        if (beta_idx % 20 == 0 || beta_idx == num_beta_points - 1) {
-            std::cout << "Processing beta = " << beta 
-                    << " (" << beta_idx+1 << "/" << num_beta_points << ")" << std::endl;
+        // Save data as JSON for Python to read
+        if (!save_as_json(output_file, beta_values, max_eigenvalues, min_eigenvalues, 
+                        theoretical_max_values, theoretical_min_values)) {
+            return false;
         }
+        
+        std::cout << "Data saved to " << output_file << std::endl;
+        return true;
     }
-    
-    // Save data as JSON for Python to read
-    save_as_json(output_file, beta_values, max_eigenvalues, min_eigenvalues, 
-                theoretical_max_values, theoretical_min_values);
-    
-    std::cout << "Data saved to " << output_file << std::endl;
+    catch (const std::exception& e) {
+        std::cerr << "Error in eigenvalue analysis: " << e.what() << std::endl;
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error in eigenvalue analysis" << std::endl;
+        return false;
+    }
 }
 
 // Cubic equation analysis function
-void cubicAnalysis(double a, double y, double beta, int num_points, const std::string& output_file) {
+bool cubicAnalysis(double a, double y, double beta, int num_points, const std::string& output_file) {
     std::cout << "Running cubic equation analysis with parameters: a = " << a 
               << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
-    // Compute Im(s) vs z data
-    std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
-    
-    // Save to JSON
-    saveImSDataAsJSON(output_file, ims_data);
-    
-    std::cout << "Cubic equation data saved to " << output_file << std::endl;
+    try {
+        // Compute Im(s) vs z data
+        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
+        
+        // Save to JSON
+        if (!saveImSDataAsJSON(output_file, ims_data)) {
+            return false;
+        }
+        
+        std::cout << "Cubic equation data saved to " << output_file << std::endl;
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error in cubic analysis: " << e.what() << std::endl;
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error in cubic analysis" << std::endl;
+        return false;
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -461,46 +505,56 @@ int main(int argc, char* argv[]) {
     
     std::string mode = argv[1];
     
-    if (mode == "eigenvalues") {
-        // ─── Eigenvalue analysis mode ───────────────────────────────────────────
-        if (argc != 10) {
-            std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
-            std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
-            std::cerr << "Received " << argc << " arguments, expected 10." << std::endl;
+    try {
+        if (mode == "eigenvalues") {
+            // ─── Eigenvalue analysis mode ───────────────────────────────────────────
+            if (argc != 10) {
+                std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 10." << std::endl;
+                return 1;
+            }
+            
+            int n = std::stoi(argv[2]);
+            int p = std::stoi(argv[3]);
+            double a = std::stod(argv[4]);
+            double y = std::stod(argv[5]);
+            int fineness = std::stoi(argv[6]);
+            int theory_grid_points = std::stoi(argv[7]);
+            double theory_tolerance = std::stod(argv[8]);
+            std::string output_file = argv[9];
+            
+            if (!eigenvalueAnalysis(n, p, a, y, fineness, theory_grid_points, theory_tolerance, output_file)) {
+                return 1;
+            }
+            
+        } else if (mode == "cubic") {
+            // ─── Cubic equation analysis mode ───────────────────────────────────────────
+            if (argc != 7) {
+                std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
+                return 1;
+            }
+            
+            double a = std::stod(argv[2]);
+            double y = std::stod(argv[3]);
+            double beta = std::stod(argv[4]);
+            int num_points = std::stoi(argv[5]);
+            std::string output_file = argv[6];
+            
+            if (!cubicAnalysis(a, y, beta, num_points, output_file)) {
+                return 1;
+            }
+            
+        } else {
+            std::cerr << "Error: Unknown mode: " << mode << std::endl;
+            std::cerr << "Use 'eigenvalues' or 'cubic'" << std::endl;
             return 1;
         }
-        
-        int n = std::stoi(argv[2]);
-        int p = std::stoi(argv[3]);
-        double a = std::stod(argv[4]);
-        double y = std::stod(argv[5]);
-        int fineness = std::stoi(argv[6]);
-        int theory_grid_points = std::stoi(argv[7]);
-        double theory_tolerance = std::stod(argv[8]);
-        std::string output_file = argv[9];
-        
-        eigenvalueAnalysis(n, p, a, y, fineness, theory_grid_points, theory_tolerance, output_file);
-        
-    } else if (mode == "cubic") {
-        // ─── Cubic equation analysis mode ───────────────────────────────────────────
-        if (argc != 7) {
-            std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
-            std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
-            std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
-            return 1;
-        }
-        
-        double a = std::stod(argv[2]);
-        double y = std::stod(argv[3]);
-        double beta = std::stod(argv[4]);
-        int num_points = std::stoi(argv[5]);
-        std::string output_file = argv[6];
-        
-        cubicAnalysis(a, y, beta, num_points, output_file);
-        
-    } else {
-        std::cerr << "Error: Unknown mode: " << mode << std::endl;
-        std::cerr << "Use 'eigenvalues' or 'cubic'" << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
     
