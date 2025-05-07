@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from PIL import Image
 import time
 import io
+import sys
 
 # Set page config with wider layout
 st.set_page_config(
@@ -115,6 +116,30 @@ if not os.path.exists(executable) or st.sidebar.button("Recompile C++ Code"):
             os.chmod(executable, 0o755)
             st.success("C++ code compiled successfully")
 
+# Helper function for running commands with better debugging
+def run_command(cmd, show_output=True):
+    cmd_str = " ".join(cmd)
+    if show_output:
+        st.code(f"Running command: {cmd_str}", language="bash")
+    
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    
+    stdout, stderr = process.communicate()
+    
+    if process.returncode != 0:
+        if show_output:
+            st.error(f"Command failed with return code {process.returncode}")
+            st.error(f"Command: {cmd_str}")
+            st.error(f"Error output: {stderr}")
+        return False, stdout, stderr
+    
+    return True, stdout, stderr
+
 # Create tabs for different analyses
 tab1, tab2 = st.tabs(["Eigenvalue Analysis", "Im(s) vs z Analysis"])
 
@@ -172,6 +197,9 @@ with tab1:
                 help="Convergence tolerance for golden section search",
                 key="eig_tolerance"
             )
+            
+            # Debug mode
+            debug_mode = st.checkbox("Debug Mode", value=False, key="eig_debug")
         
         # Generate button
         eig_generate_button = st.button("Generate Eigenvalue Analysis", 
@@ -198,14 +226,14 @@ with tab1:
                     status_text = st.empty()
                 
                 try:
-                    # Run the C++ executable with the parameters in JSON output mode
+                    # Create data file path
                     data_file = os.path.join(output_dir, "eigenvalue_data.json")
                     
                     # Delete previous output if exists
                     if os.path.exists(data_file):
                         os.remove(data_file)
                     
-                    # Execute the C++ program - FIXED ARGUMENTS ORDER
+                    # Build command for eigenvalue analysis
                     cmd = [
                         executable,
                         "eigenvalues",
@@ -219,41 +247,28 @@ with tab1:
                         data_file
                     ]
                     
-                    process = subprocess.Popen(
-                        cmd, 
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
+                    # Run the command with our helper function
+                    status_text.text("Running eigenvalue analysis...")
+                    success, stdout, stderr = run_command(cmd, debug_mode)
                     
-                    # Show output in a status area
-                    status_text.text("Starting calculations...")
-                    
-                    last_progress = 0
-                    while process.poll() is None:
-                        output = process.stdout.readline()
-                        if output:
-                            if output.startswith("PROGRESS:"):
-                                try:
-                                    # Update progress bar
-                                    progress_value = float(output.split(":")[1].strip())
-                                    progress_bar.progress(progress_value)
-                                    last_progress = progress_value
-                                    status_text.text(f"Calculating... {int(progress_value * 100)}% complete")
-                                except:
-                                    pass
-                            else:
-                                status_text.text(output.strip())
-                        time.sleep(0.1)
-                    
-                    return_code = process.poll()
-                    
-                    if return_code != 0:
-                        error = process.stderr.read()
-                        st.error(f"Error executing the analysis: {error}")
+                    if not success:
+                        st.error("Eigenvalue analysis failed. Please check the debug output.")
+                        if debug_mode:
+                            st.text("Command output:")
+                            st.code(stdout)
+                            st.text("Error output:")
+                            st.code(stderr)
                     else:
                         progress_bar.progress(1.0)
-                        status_text.text("Calculations complete! Generating visualization...")
+                        status_text.text("Analysis complete! Generating visualization...")
+                        
+                        # Check if the output file was created
+                        if not os.path.exists(data_file):
+                            st.error(f"Output file not created: {data_file}")
+                            if debug_mode:
+                                st.text("Command output:")
+                                st.code(stdout)
+                            st.stop()
                         
                         # Load the results from the JSON file
                         with open(data_file, 'r') as f:
@@ -409,6 +424,8 @@ with tab1:
                 
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+                    if debug_mode:
+                        st.exception(e)
         
         else:
             # Try to load existing data if available
@@ -567,6 +584,9 @@ with tab2:
             key="cubic_points"
         )
         
+        # Debug mode
+        cubic_debug_mode = st.checkbox("Debug Mode", value=False, key="cubic_debug")
+        
         # Show cubic equation
         st.markdown('<div class="math-box">', unsafe_allow_html=True)
         st.markdown("### Cubic Equation")
@@ -605,7 +625,7 @@ with tab2:
                     if os.path.exists(data_file):
                         os.remove(data_file)
                     
-                    # Execute the C++ program - FIXED ARGUMENTS ORDER
+                    # Build command for cubic equation analysis
                     cmd = [
                         executable,
                         "cubic",
@@ -616,18 +636,27 @@ with tab2:
                         data_file
                     ]
                     
+                    # Run the command with our helper function
                     status_text.text("Calculating Im(s) vs z values...")
+                    success, stdout, stderr = run_command(cmd, cubic_debug_mode)
                     
-                    process = subprocess.run(
-                        cmd, 
-                        capture_output=True,
-                        text=True
-                    )
-                    
-                    if process.returncode != 0:
-                        st.error(f"Error executing the analysis: {process.stderr}")
+                    if not success:
+                        st.error("Cubic equation analysis failed. Please check the debug output.")
+                        if cubic_debug_mode:
+                            st.text("Command output:")
+                            st.code(stdout)
+                            st.text("Error output:")
+                            st.code(stderr)
                     else:
                         status_text.text("Calculations complete! Generating visualization...")
+                        
+                        # Check if the output file was created
+                        if not os.path.exists(data_file):
+                            st.error(f"Output file not created: {data_file}")
+                            if cubic_debug_mode:
+                                st.text("Command output:")
+                                st.code(stdout)
+                            st.stop()
                         
                         # Load the results from the JSON file
                         with open(data_file, 'r') as f:
@@ -758,6 +787,8 @@ with tab2:
                 
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
+                    if cubic_debug_mode:
+                        st.exception(e)
         
         else:
             # Try to load existing data if available
