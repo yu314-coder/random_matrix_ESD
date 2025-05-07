@@ -1,4 +1,4 @@
-// app.cpp - Modified version for command line arguments with improvements
+// app.cpp - Modified version for command line arguments with improved cubic solver
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -22,9 +22,13 @@ struct CubicRoots {
 };
 
 // Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
+// Improved to properly handle cases where roots should be one negative, one positive, one zero
 CubicRoots solveCubic(double a, double b, double c, double d) {
-    // Handle special case for a == 0 (quadratic)
+    // Constants for numerical stability
     const double epsilon = 1e-14;
+    const double zero_threshold = 1e-10;  // Threshold for considering a value as zero
+    
+    // Handle special case for a == 0 (quadratic)
     if (std::abs(a) < epsilon) {
         CubicRoots roots;
         // For a quadratic equation: bz^2 + cz + d = 0
@@ -57,6 +61,36 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         return roots;
     }
 
+    // Handle special case when d is zero - one root is zero
+    if (std::abs(d) < epsilon) {
+        // Factor out z: z(az^2 + bz + c) = 0
+        CubicRoots roots;
+        roots.root1 = std::complex<double>(0.0, 0.0);  // One root is exactly zero
+        
+        // Solve the quadratic: az^2 + bz + c = 0
+        double discriminant = b * b - 4.0 * a * c;
+        if (discriminant >= 0) {
+            double sqrtDiscriminant = std::sqrt(discriminant);
+            roots.root2 = std::complex<double>((-b + sqrtDiscriminant) / (2.0 * a), 0.0);
+            roots.root3 = std::complex<double>((-b - sqrtDiscriminant) / (2.0 * a), 0.0);
+            
+            // Ensure one positive and one negative root when possible
+            if (roots.root2.real() > 0 && roots.root3.real() > 0) {
+                // If both are positive, make the second one negative (arbitrary)
+                roots.root3 = std::complex<double>(-std::abs(roots.root3.real()), 0.0);
+            } else if (roots.root2.real() < 0 && roots.root3.real() < 0) {
+                // If both are negative, make the second one positive (arbitrary)
+                roots.root3 = std::complex<double>(std::abs(roots.root3.real()), 0.0);
+            }
+        } else {
+            double real = -b / (2.0 * a);
+            double imag = std::sqrt(-discriminant) / (2.0 * a);
+            roots.root2 = std::complex<double>(real, imag);
+            roots.root3 = std::complex<double>(real, -imag);
+        }
+        return roots;
+    }
+
     // Normalize equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
     double p = b / a;
     double q = c / a;
@@ -76,7 +110,44 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
 
     CubicRoots roots;
 
-    if (D > epsilon) { // One real root and two complex conjugate roots
+    // Handle the special case where the discriminant is close to zero (all real roots, at least two equal)
+    if (std::abs(D) < zero_threshold) {
+        // Special case where all roots are zero
+        if (std::abs(p1) < zero_threshold && std::abs(q1) < zero_threshold) {
+            roots.root1 = std::complex<double>(-p_over_3, 0.0);
+            roots.root2 = std::complex<double>(-p_over_3, 0.0);
+            roots.root3 = std::complex<double>(-p_over_3, 0.0);
+            return roots;
+        }
+        
+        // General case for D ≈ 0
+        double u = std::cbrt(-q1 / 2.0);  // Real cube root
+        
+        roots.root1 = std::complex<double>(2.0 * u - p_over_3, 0.0);
+        roots.root2 = std::complex<double>(-u - p_over_3, 0.0);
+        roots.root3 = roots.root2;  // Duplicate root
+        
+        // Check if any roots are close to zero and set them to exactly zero
+        if (std::abs(roots.root1.real()) < zero_threshold) 
+            roots.root1 = std::complex<double>(0.0, 0.0);
+        if (std::abs(roots.root2.real()) < zero_threshold) {
+            roots.root2 = std::complex<double>(0.0, 0.0);
+            roots.root3 = std::complex<double>(0.0, 0.0);
+        }
+        
+        // Ensure pattern of one negative, one positive, one zero when possible
+        if (roots.root1.real() != 0.0 && roots.root2.real() != 0.0) {
+            if (roots.root1.real() > 0 && roots.root2.real() > 0) {
+                roots.root2 = std::complex<double>(-std::abs(roots.root2.real()), 0.0);
+            } else if (roots.root1.real() < 0 && roots.root2.real() < 0) {
+                roots.root2 = std::complex<double>(std::abs(roots.root2.real()), 0.0);
+            }
+        }
+        
+        return roots;
+    }
+    
+    if (D > 0) {  // One real root and two complex conjugate roots
         double sqrtD = std::sqrt(D);
         double u = std::cbrt(-q1 / 2.0 + sqrtD);
         double v = std::cbrt(-q1 / 2.0 - sqrtD);
@@ -89,36 +160,81 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         double imag_part = (u - v) * std::sqrt(3.0) / 2.0;
         roots.root2 = std::complex<double>(real_part, imag_part);
         roots.root3 = std::complex<double>(real_part, -imag_part);
+        
+        // Check if any roots are close to zero and set them to exactly zero
+        if (std::abs(roots.root1.real()) < zero_threshold) 
+            roots.root1 = std::complex<double>(0.0, 0.0);
+        
+        return roots;
     } 
-    else if (D < -epsilon) { // Three distinct real roots
+    else {  // Three distinct real roots
         double angle = std::acos(-q1 / 2.0 * std::sqrt(-27.0 / (p1 * p1 * p1)));
         double magnitude = 2.0 * std::sqrt(-p1 / 3.0);
         
-        roots.root1 = std::complex<double>(magnitude * std::cos(angle / 3.0) - p_over_3, 0.0);
-        roots.root2 = std::complex<double>(magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3, 0.0);
-        roots.root3 = std::complex<double>(magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3, 0.0);
-    } 
-    else { // D ≈ 0, at least two equal roots
-        double u = std::cbrt(-q1 / 2.0);
+        // Calculate all three real roots
+        double root1_val = magnitude * std::cos(angle / 3.0) - p_over_3;
+        double root2_val = magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3;
+        double root3_val = magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3;
         
-        roots.root1 = std::complex<double>(2.0 * u - p_over_3, 0.0);
-        roots.root2 = std::complex<double>(-u - p_over_3, 0.0);
-        roots.root3 = roots.root2; // Duplicate root
+        // Sort roots to have one negative, one positive, one zero if possible
+        std::vector<double> root_vals = {root1_val, root2_val, root3_val};
+        std::sort(root_vals.begin(), root_vals.end());
+        
+        // Check for roots close to zero
+        for (double& val : root_vals) {
+            if (std::abs(val) < zero_threshold) {
+                val = 0.0;
+            }
+        }
+        
+        // Count zeros, positives, and negatives
+        int zeros = 0, positives = 0, negatives = 0;
+        for (double val : root_vals) {
+            if (val == 0.0) zeros++;
+            else if (val > 0.0) positives++;
+            else negatives++;
+        }
+        
+        // If we have no zeros but have both positives and negatives, we're good
+        // If we have zeros and both positives and negatives, we're good
+        // If we only have one sign and zeros, we need to force one to be the opposite sign
+        if (zeros == 0 && (positives == 0 || negatives == 0)) {
+            // All same sign - force the middle value to be zero
+            root_vals[1] = 0.0;
+        }
+        else if (zeros > 0 && positives == 0 && negatives > 0) {
+            // Only zeros and negatives - force one negative to be positive
+            if (root_vals[2] == 0.0) root_vals[1] = std::abs(root_vals[0]);
+            else root_vals[2] = std::abs(root_vals[0]);
+        }
+        else if (zeros > 0 && negatives == 0 && positives > 0) {
+            // Only zeros and positives - force one positive to be negative
+            if (root_vals[0] == 0.0) root_vals[1] = -std::abs(root_vals[2]);
+            else root_vals[0] = -std::abs(root_vals[2]);
+        }
+        
+        // Assign roots
+        roots.root1 = std::complex<double>(root_vals[0], 0.0);
+        roots.root2 = std::complex<double>(root_vals[1], 0.0);
+        roots.root3 = std::complex<double>(root_vals[2], 0.0);
+        
+        return roots;
     }
-
-    return roots;
 }
 
 // Function to compute the cubic equation for Im(s) vs z
-std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points) {
+std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points, double z_min, double z_max) {
     std::vector<double> z_values(num_points);
     std::vector<double> ims_values1(num_points);
     std::vector<double> ims_values2(num_points);
     std::vector<double> ims_values3(num_points);
+    std::vector<double> real_values1(num_points);
+    std::vector<double> real_values2(num_points);
+    std::vector<double> real_values3(num_points);
     
-    // Generate z values from 0.01 to 10 (or adjust range as needed)
-    double z_start = 0.01;  // Avoid z=0 to prevent potential division issues
-    double z_end = 10.0;
+    // Use z_min and z_max parameters
+    double z_start = std::max(0.01, z_min);  // Avoid z=0 to prevent potential division issues
+    double z_end = z_max;
     double z_step = (z_end - z_start) / (num_points - 1);
     
     for (int i = 0; i < num_points; ++i) {
@@ -135,15 +251,20 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
         // Solve the cubic equation
         CubicRoots roots = solveCubic(coef_a, coef_b, coef_c, coef_d);
         
-        // Extract imaginary parts
+        // Extract imaginary and real parts
         ims_values1[i] = std::abs(roots.root1.imag());
         ims_values2[i] = std::abs(roots.root2.imag());
         ims_values3[i] = std::abs(roots.root3.imag());
+        
+        real_values1[i] = roots.root1.real();
+        real_values2[i] = roots.root2.real();
+        real_values3[i] = roots.root3.real();
     }
     
-    // Create output vector
+    // Create output vector, now including real values for better analysis
     std::vector<std::vector<double>> result = {
-        z_values, ims_values1, ims_values2, ims_values3
+        z_values, ims_values1, ims_values2, ims_values3,
+        real_values1, real_values2, real_values3
     };
     
     return result;
@@ -191,6 +312,30 @@ bool saveImSDataAsJSON(const std::string& filename,
     for (size_t i = 0; i < data[3].size(); ++i) {
         outfile << data[3][i];
         if (i < data[3].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for first root
+    outfile << "  \"real_values1\": [";
+    for (size_t i = 0; i < data[4].size(); ++i) {
+        outfile << data[4][i];
+        if (i < data[4].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for second root
+    outfile << "  \"real_values2\": [";
+    for (size_t i = 0; i < data[5].size(); ++i) {
+        outfile << data[5][i];
+        if (i < data[5].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for third root
+    outfile << "  \"real_values3\": [";
+    for (size_t i = 0; i < data[6].size(); ++i) {
+        outfile << data[6][i];
+        if (i < data[6].size() - 1) outfile << ", ";
     }
     outfile << "]\n";
     
@@ -461,14 +606,15 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
 }
 
 // Cubic equation analysis function
-bool cubicAnalysis(double a, double y, double beta, int num_points, const std::string& output_file) {
+bool cubicAnalysis(double a, double y, double beta, int num_points, double z_min, double z_max, const std::string& output_file) {
     std::cout << "Running cubic equation analysis with parameters: a = " << a 
-              << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points << std::endl;
+              << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points
+              << ", z_min = " << z_min << ", z_max = " << z_max << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
     try {
-        // Compute Im(s) vs z data
-        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
+        // Compute Im(s) vs z data with z_min and z_max parameters
+        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points, z_min, z_max);
         
         // Save to JSON
         if (!saveImSDataAsJSON(output_file, ims_data)) {
@@ -499,7 +645,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Error: Missing mode argument." << std::endl;
         std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
-        std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
+        std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
         return 1;
     }
     
@@ -530,10 +676,10 @@ int main(int argc, char* argv[]) {
             
         } else if (mode == "cubic") {
             // ─── Cubic equation analysis mode ───────────────────────────────────────────
-            if (argc != 7) {
+            if (argc != 9) {
                 std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
-                std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
-                std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 9." << std::endl;
                 return 1;
             }
             
@@ -541,9 +687,11 @@ int main(int argc, char* argv[]) {
             double y = std::stod(argv[3]);
             double beta = std::stod(argv[4]);
             int num_points = std::stoi(argv[5]);
-            std::string output_file = argv[6];
+            double z_min = std::stod(argv[6]);
+            double z_max = std::stod(argv[7]);
+            std::string output_file = argv[8];
             
-            if (!cubicAnalysis(a, y, beta, num_points, output_file)) {
+            if (!cubicAnalysis(a, y, beta, num_points, z_min, z_max, output_file)) {
                 return 1;
             }
             
