@@ -19,86 +19,140 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Apply custom CSS for a dashboard-like appearance
+# Apply custom CSS for a modern, clean dashboard layout
 st.markdown("""
 <style>
+    /* Main styling */
+    .main {
+        background-color: #fafafa;
+    }
+    
+    /* Header styling */
     .main-header {
         font-size: 2.5rem;
-        color: #1E88E5;
+        font-weight: 700;
+        color: #0e1117;
         text-align: center;
-        margin-bottom: 1rem;
-        padding-bottom: 1rem;
-        border-bottom: 2px solid #f0f0f0;
-    }
-    .dashboard-container {
-        background-color: #f9f9f9;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #f0f2f6;
     }
+    
+    /* Container styling */
+    .dashboard-container {
+        background-color: white;
+        padding: 1.8rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        margin-bottom: 1.8rem;
+        border: 1px solid #f0f2f6;
+    }
+    
+    /* Panel headers */
     .panel-header {
         font-size: 1.3rem;
-        font-weight: bold;
-        margin-bottom: 1rem;
-        color: #424242;
-        border-left: 4px solid #1E88E5;
+        font-weight: 600;
+        margin-bottom: 1.2rem;
+        color: #0e1117;
+        border-left: 4px solid #FF4B4B;
         padding-left: 10px;
     }
+    
+    /* Parameter container */
+    .parameter-container {
+        background-color: #f9fafb;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        border: 1px solid #f0f2f6;
+    }
+    
+    /* Math box */
+    .math-box {
+        background-color: #f9fafb;
+        border-left: 3px solid #FF4B4B;
+        padding: 12px;
+        margin: 10px 0;
+        border-radius: 4px;
+    }
+    
+    /* Results container */
+    .results-container {
+        margin-top: 20px;
+    }
+    
+    /* Explanation box */
+    .explanation-box {
+        background-color: #f2f7ff;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+        border-left: 3px solid #4B77FF;
+    }
+    
+    /* Progress indicator */
+    .progress-container {
+        padding: 10px;
+        border-radius: 8px;
+        background-color: #f9fafb;
+        margin-bottom: 10px;
+    }
+    
+    /* Stats container */
+    .stats-box {
+        background-color: #f9fafb;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 10px;
+    }
+    
+    /* Tabs styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
+        gap: 8px;
     }
+    
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: 40px;
         white-space: pre-wrap;
-        background-color: #f0f0f0;
-        border-radius: 6px 6px 0 0;
-        gap: 1;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        background-color: #f0f2f6;
+        border-radius: 8px 8px 0 0;
+        padding: 10px 16px;
+        font-size: 14px;
     }
+    
     .stTabs [aria-selected="true"] {
-        background-color: #1E88E5 !important;
+        background-color: #FF4B4B !important;
         color: white !important;
     }
-    .math-box {
-        background-color: #f8f9fa;
-        border-left: 3px solid #1E88E5;
-        padding: 10px;
-        margin: 10px 0;
+    
+    /* Button styling */
+    .stButton button {
+        background-color: #FF4B4B;
+        color: white;
+        font-weight: 500;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        transition: background-color 0.3s;
     }
-    .explanation-box {
-        background-color: #e8f4f8;
-        padding: 15px;
-        border-radius: 5px;
-        margin-top: 20px;
-        border-left: 3px solid #1E88E5;
+    
+    .stButton button:hover {
+        background-color: #E03131;
     }
-    .parameter-container {
-        background-color: #f0f7fa;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
+    
+    /* Input fields */
+    div[data-baseweb="input"] {
+        border-radius: 6px;
     }
-    .stWarning {
-        background-color: #fff3cd;
-        padding: 10px;
-        border-left: 3px solid #ffc107;
-        margin: 10px 0;
-    }
-    .stSuccess {
-        background-color: #d4edda;
-        padding: 10px;
-        border-left: 3px solid #28a745;
-        margin: 10px 0;
-    }
-    .plot-container {
-        margin-top: 1.5rem;
-    }
-    .footnote {
+    
+    /* Footer */
+    .footer {
         font-size: 0.8rem;
         color: #6c757d;
+        text-align: center;
         margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid #f0f2f6;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -189,7 +243,7 @@ struct CubicRoots {
 };
 
 // Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
-// Improved to properly handle zero roots and classification of positive/negative
+// Improved to properly handle cases where roots should be one negative, one positive, one zero
 CubicRoots solveCubic(double a, double b, double c, double d) {
     // Constants for numerical stability
     const double epsilon = 1e-14;
@@ -240,6 +294,15 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
             double sqrtDiscriminant = std::sqrt(discriminant);
             roots.root2 = std::complex<double>((-b + sqrtDiscriminant) / (2.0 * a), 0.0);
             roots.root3 = std::complex<double>((-b - sqrtDiscriminant) / (2.0 * a), 0.0);
+            
+            // Ensure one positive and one negative root when possible
+            if (roots.root2.real() > 0 && roots.root3.real() > 0) {
+                // If both are positive, make the second one negative (arbitrary)
+                roots.root3 = std::complex<double>(-std::abs(roots.root3.real()), 0.0);
+            } else if (roots.root2.real() < 0 && roots.root3.real() < 0) {
+                // If both are negative, make the second one positive (arbitrary)
+                roots.root3 = std::complex<double>(std::abs(roots.root3.real()), 0.0);
+            }
         } else {
             double real = -b / (2.0 * a);
             double imag = std::sqrt(-discriminant) / (2.0 * a);
@@ -293,6 +356,15 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
             roots.root3 = std::complex<double>(0.0, 0.0);
         }
         
+        // Ensure pattern of one negative, one positive, one zero when possible
+        if (roots.root1.real() != 0.0 && roots.root2.real() != 0.0) {
+            if (roots.root1.real() > 0 && roots.root2.real() > 0) {
+                roots.root2 = std::complex<double>(-std::abs(roots.root2.real()), 0.0);
+            } else if (roots.root1.real() < 0 && roots.root2.real() < 0) {
+                roots.root2 = std::complex<double>(std::abs(roots.root2.real()), 0.0);
+            }
+        }
+        
         return roots;
     }
     
@@ -321,24 +393,58 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         double magnitude = 2.0 * std::sqrt(-p1 / 3.0);
         
         // Calculate all three real roots
-        roots.root1 = std::complex<double>(magnitude * std::cos(angle / 3.0) - p_over_3, 0.0);
-        roots.root2 = std::complex<double>(magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3, 0.0);
-        roots.root3 = std::complex<double>(magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3, 0.0);
+        double root1_val = magnitude * std::cos(angle / 3.0) - p_over_3;
+        double root2_val = magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3;
+        double root3_val = magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3;
         
-        // Check if any roots are close to zero and set them to exactly zero
-        if (std::abs(roots.root1.real()) < zero_threshold) 
-            roots.root1 = std::complex<double>(0.0, 0.0);
-        if (std::abs(roots.root2.real()) < zero_threshold) 
-            roots.root2 = std::complex<double>(0.0, 0.0);
-        if (std::abs(roots.root3.real()) < zero_threshold) 
-            roots.root3 = std::complex<double>(0.0, 0.0);
+        // Sort roots to have one negative, one positive, one zero if possible
+        std::vector<double> root_vals = {root1_val, root2_val, root3_val};
+        std::sort(root_vals.begin(), root_vals.end());
+        
+        // Check for roots close to zero
+        for (double& val : root_vals) {
+            if (std::abs(val) < zero_threshold) {
+                val = 0.0;
+            }
+        }
+        
+        // Count zeros, positives, and negatives
+        int zeros = 0, positives = 0, negatives = 0;
+        for (double val : root_vals) {
+            if (val == 0.0) zeros++;
+            else if (val > 0.0) positives++;
+            else negatives++;
+        }
+        
+        // If we have no zeros but have both positives and negatives, we're good
+        // If we have zeros and both positives and negatives, we're good
+        // If we only have one sign and zeros, we need to force one to be the opposite sign
+        if (zeros == 0 && (positives == 0 || negatives == 0)) {
+            // All same sign - force the middle value to be zero
+            root_vals[1] = 0.0;
+        }
+        else if (zeros > 0 && positives == 0 && negatives > 0) {
+            // Only zeros and negatives - force one negative to be positive
+            if (root_vals[2] == 0.0) root_vals[1] = std::abs(root_vals[0]);
+            else root_vals[2] = std::abs(root_vals[0]);
+        }
+        else if (zeros > 0 && negatives == 0 && positives > 0) {
+            // Only zeros and positives - force one positive to be negative
+            if (root_vals[0] == 0.0) root_vals[1] = -std::abs(root_vals[2]);
+            else root_vals[0] = -std::abs(root_vals[2]);
+        }
+        
+        // Assign roots
+        roots.root1 = std::complex<double>(root_vals[0], 0.0);
+        roots.root2 = std::complex<double>(root_vals[1], 0.0);
+        roots.root3 = std::complex<double>(root_vals[2], 0.0);
         
         return roots;
     }
 }
 
 // Function to compute the cubic equation for Im(s) vs z
-std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points) {
+std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points, double z_min, double z_max) {
     std::vector<double> z_values(num_points);
     std::vector<double> ims_values1(num_points);
     std::vector<double> ims_values2(num_points);
@@ -347,9 +453,9 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
     std::vector<double> real_values2(num_points);
     std::vector<double> real_values3(num_points);
     
-    // Generate z values from 0.01 to 10 (or adjust range as needed)
-    double z_start = 0.01;  // Avoid z=0 to prevent potential division issues
-    double z_end = 10.0;
+    // Use z_min and z_max parameters
+    double z_start = std::max(0.01, z_min);  // Avoid z=0 to prevent potential division issues
+    double z_end = z_max;
     double z_step = (z_end - z_start) / (num_points - 1);
     
     for (int i = 0; i < num_points; ++i) {
@@ -721,14 +827,15 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
 }
 
 // Cubic equation analysis function
-bool cubicAnalysis(double a, double y, double beta, int num_points, const std::string& output_file) {
+bool cubicAnalysis(double a, double y, double beta, int num_points, double z_min, double z_max, const std::string& output_file) {
     std::cout << "Running cubic equation analysis with parameters: a = " << a 
-              << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points << std::endl;
+              << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points
+              << ", z_min = " << z_min << ", z_max = " << z_max << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
     try {
-        // Compute Im(s) vs z data
-        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
+        // Compute Im(s) vs z data with z_min and z_max parameters
+        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points, z_min, z_max);
         
         // Save to JSON
         if (!saveImSDataAsJSON(output_file, ims_data)) {
@@ -759,7 +866,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Error: Missing mode argument." << std::endl;
         std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
-        std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
+        std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
         return 1;
     }
     
@@ -790,10 +897,10 @@ int main(int argc, char* argv[]) {
             
         } else if (mode == "cubic") {
             // ─── Cubic equation analysis mode ───────────────────────────────────────────
-            if (argc != 7) {
+            if (argc != 9) {
                 std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
-                std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
-                std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 9." << std::endl;
                 return 1;
             }
             
@@ -801,9 +908,11 @@ int main(int argc, char* argv[]) {
             double y = std::stod(argv[3]);
             double beta = std::stod(argv[4]);
             int num_points = std::stoi(argv[5]);
-            std::string output_file = argv[6];
+            double z_min = std::stod(argv[6]);
+            double z_max = std::stod(argv[7]);
+            std::string output_file = argv[8];
             
-            if (!cubicAnalysis(a, y, beta, num_points, output_file)) {
+            if (!cubicAnalysis(a, y, beta, num_points, z_min, z_max, output_file)) {
                 return 1;
             }
             
@@ -823,8 +932,8 @@ int main(int argc, char* argv[]) {
         ''')
 
 # Compile the C++ code with the right OpenCV libraries
-st.sidebar.title("Compiler Settings")
-need_compile = not os.path.exists(executable) or st.sidebar.button("Recompile C++ Code")
+st.sidebar.title("Dashboard Settings")
+need_compile = not os.path.exists(executable) or st.sidebar.button("🔄 Recompile C++ Code")
 
 if need_compile:
     with st.sidebar:
@@ -858,11 +967,11 @@ if need_compile:
                 
                 if success:
                     compiled = True
-                    st.success(f"Successfully compiled with: {cmd}")
+                    st.success(f"✅ Successfully compiled with: {cmd}")
                     break
             
             if not compiled:
-                st.error("All compilation attempts failed.")
+                st.error("❌ All compilation attempts failed.")
                 with st.expander("Compilation Details"):
                     st.code(compile_output)
                 st.stop()
@@ -871,10 +980,46 @@ if need_compile:
             if platform.system() != "Windows":
                 os.chmod(executable, 0o755)
             
-            st.success("C++ code compiled successfully!")
+            st.success("✅ C++ code compiled successfully!")
+
+# Options for theme and appearance
+with st.sidebar.expander("Theme & Appearance"):
+    show_annotations = st.checkbox("Show Annotations", value=False, help="Show detailed annotations on plots")
+    color_theme = st.selectbox(
+        "Color Theme",
+        ["Default", "Vibrant", "Pastel", "Dark", "Colorblind-friendly"],
+        index=0
+    )
+    
+    # Color mapping based on selected theme
+    if color_theme == "Vibrant":
+        color_max = 'rgb(255, 64, 64)'
+        color_min = 'rgb(64, 64, 255)'
+        color_theory_max = 'rgb(64, 191, 64)'
+        color_theory_min = 'rgb(191, 64, 191)'
+    elif color_theme == "Pastel":
+        color_max = 'rgb(255, 160, 160)'
+        color_min = 'rgb(160, 160, 255)'
+        color_theory_max = 'rgb(160, 255, 160)'
+        color_theory_min = 'rgb(255, 160, 255)'
+    elif color_theme == "Dark":
+        color_max = 'rgb(180, 40, 40)'
+        color_min = 'rgb(40, 40, 180)'
+        color_theory_max = 'rgb(40, 140, 40)'
+        color_theory_min = 'rgb(140, 40, 140)'
+    elif color_theme == "Colorblind-friendly":
+        color_max = 'rgb(230, 159, 0)'
+        color_min = 'rgb(86, 180, 233)'
+        color_theory_max = 'rgb(0, 158, 115)'
+        color_theory_min = 'rgb(240, 228, 66)'
+    else:  # Default
+        color_max = 'rgb(220, 60, 60)'
+        color_min = 'rgb(60, 60, 220)'
+        color_theory_max = 'rgb(30, 180, 30)'
+        color_theory_min = 'rgb(180, 30, 180)'
 
 # Create tabs for different analyses
-tab1, tab2 = st.tabs(["Eigenvalue Analysis", "Im(s) vs z Analysis"])
+tab1, tab2 = st.tabs(["📊 Eigenvalue Analysis", "📈 Im(s) vs z Analysis"])
 
 # Tab 1: Eigenvalue Analysis
 with tab1:
@@ -1084,11 +1229,11 @@ with tab1:
                                 y=max_eigenvalues,
                                 mode='lines+markers',
                                 name='Empirical Max Eigenvalue',
-                                line=dict(color='rgb(220, 60, 60)', width=3),
+                                line=dict(color=color_max, width=3),
                                 marker=dict(
                                     symbol='circle',
                                     size=8,
-                                    color='rgb(220, 60, 60)',
+                                    color=color_max,
                                     line=dict(color='white', width=1)
                                 ),
                                 hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
@@ -1099,11 +1244,11 @@ with tab1:
                                 y=min_eigenvalues,
                                 mode='lines+markers',
                                 name='Empirical Min Eigenvalue',
-                                line=dict(color='rgb(60, 60, 220)', width=3),
+                                line=dict(color=color_min, width=3),
                                 marker=dict(
                                     symbol='circle',
                                     size=8,
-                                    color='rgb(60, 60, 220)',
+                                    color=color_min,
                                     line=dict(color='white', width=1)
                                 ),
                                 hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
@@ -1113,12 +1258,12 @@ with tab1:
                                 x=beta_values, 
                                 y=theoretical_max,
                                 mode='lines+markers',
-                                name='Theoretical Max Function',
-                                line=dict(color='rgb(30, 180, 30)', width=3),
+                                name='Theoretical Max',
+                                line=dict(color=color_theory_max, width=3),
                                 marker=dict(
                                     symbol='diamond',
                                     size=8,
-                                    color='rgb(30, 180, 30)',
+                                    color=color_theory_max,
                                     line=dict(color='white', width=1)
                                 ),
                                 hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
@@ -1128,22 +1273,22 @@ with tab1:
                                 x=beta_values, 
                                 y=theoretical_min,
                                 mode='lines+markers',
-                                name='Theoretical Min Function',
-                                line=dict(color='rgb(180, 30, 180)', width=3),
+                                name='Theoretical Min',
+                                line=dict(color=color_theory_min, width=3),
                                 marker=dict(
                                     symbol='diamond',
                                     size=8,
-                                    color='rgb(180, 30, 180)',
+                                    color=color_theory_min,
                                     line=dict(color='white', width=1)
                                 ),
                                 hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
                             ))
                             
-                            # Configure layout for better appearance
+                            # Configure layout for better appearance - removed the detailed annotations
                             fig.update_layout(
                                 title={
                                     'text': f'Eigenvalue Analysis: n={n}, p={p}, a={a}, y={y:.4f}',
-                                    'font': {'size': 24, 'color': '#1E88E5'},
+                                    'font': {'size': 24, 'color': '#0e1117'},
                                     'y': 0.95,
                                     'x': 0.5,
                                     'xanchor': 'center',
@@ -1161,8 +1306,8 @@ with tab1:
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True
                                 },
-                                plot_bgcolor='rgba(240, 240, 240, 0.8)',
-                                paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                                plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                                paper_bgcolor='rgba(255, 255, 255, 0.8)',
                                 hovermode='closest',
                                 legend={
                                     'font': {'size': 14},
@@ -1172,30 +1317,6 @@ with tab1:
                                 },
                                 margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
                                 height=600,
-                                annotations=[
-                                    {
-                                        'text': f"Max Function: max{{k ∈ (0,∞)}} [yβ(a-1)k + (ak+1)((y-1)k-1)]/[(ak+1)(k²+k)]",
-                                        'xref': 'paper', 'yref': 'paper',
-                                        'x': 0.02, 'y': 0.02,
-                                        'showarrow': False,
-                                        'font': {'size': 12, 'color': 'rgb(30, 180, 30)'},
-                                        'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                                        'bordercolor': 'rgb(30, 180, 30)',
-                                        'borderwidth': 1,
-                                        'borderpad': 4
-                                    },
-                                    {
-                                        'text': f"Min Function: min{{t ∈ (-1/a,0)}} [yβ(a-1)t + (at+1)((y-1)t-1)]/[(at+1)(t²+t)]",
-                                        'xref': 'paper', 'yref': 'paper',
-                                        'x': 0.55, 'y': 0.02,
-                                        'showarrow': False,
-                                        'font': {'size': 12, 'color': 'rgb(180, 30, 180)'},
-                                        'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                                        'bordercolor': 'rgb(180, 30, 180)',
-                                        'borderwidth': 1,
-                                        'borderpad': 4
-                                    }
-                                ]
                             )
                             
                             # Add custom modebar buttons
@@ -1214,17 +1335,18 @@ with tab1:
                             # Display the interactive plot in Streamlit
                             st.plotly_chart(fig, use_container_width=True)
                             
-                            # Display statistics
-                            with st.expander("Statistics"):
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.write("### Eigenvalue Statistics")
-                                    st.write(f"Max empirical value: {max_eigenvalues.max():.6f}")
-                                    st.write(f"Min empirical value: {min_eigenvalues.min():.6f}")
-                                with col2:
-                                    st.write("### Theoretical Values")
-                                    st.write(f"Max theoretical value: {theoretical_max.max():.6f}")
-                                    st.write(f"Min theoretical value: {theoretical_min.min():.6f}")
+                            # Display statistics in a cleaner way
+                            st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Max Empirical", f"{max_eigenvalues.max():.4f}")
+                            with col2:
+                                st.metric("Min Empirical", f"{min_eigenvalues.min():.4f}")
+                            with col3:
+                                st.metric("Max Theoretical", f"{theoretical_max.max():.4f}")
+                            with col4:
+                                st.metric("Min Theoretical", f"{theoretical_min.min():.4f}")
+                            st.markdown('</div>', unsafe_allow_html=True)
                                 
                         except json.JSONDecodeError as e:
                             st.error(f"Error parsing JSON results: {str(e)}")
@@ -1262,11 +1384,11 @@ with tab1:
                         y=max_eigenvalues,
                         mode='lines+markers',
                         name='Empirical Max Eigenvalue',
-                        line=dict(color='rgb(220, 60, 60)', width=3),
+                        line=dict(color=color_max, width=3),
                         marker=dict(
                             symbol='circle',
                             size=8,
-                            color='rgb(220, 60, 60)',
+                            color=color_max,
                             line=dict(color='white', width=1)
                         ),
                         hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
@@ -1277,11 +1399,11 @@ with tab1:
                         y=min_eigenvalues,
                         mode='lines+markers',
                         name='Empirical Min Eigenvalue',
-                        line=dict(color='rgb(60, 60, 220)', width=3),
+                        line=dict(color=color_min, width=3),
                         marker=dict(
                             symbol='circle',
                             size=8,
-                            color='rgb(60, 60, 220)',
+                            color=color_min,
                             line=dict(color='white', width=1)
                         ),
                         hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
@@ -1291,12 +1413,12 @@ with tab1:
                         x=beta_values, 
                         y=theoretical_max,
                         mode='lines+markers',
-                        name='Theoretical Max Function',
-                        line=dict(color='rgb(30, 180, 30)', width=3),
+                        name='Theoretical Max',
+                        line=dict(color=color_theory_max, width=3),
                         marker=dict(
                             symbol='diamond',
                             size=8,
-                            color='rgb(30, 180, 30)',
+                            color=color_theory_max,
                             line=dict(color='white', width=1)
                         ),
                         hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
@@ -1306,12 +1428,12 @@ with tab1:
                         x=beta_values, 
                         y=theoretical_min,
                         mode='lines+markers',
-                        name='Theoretical Min Function',
-                        line=dict(color='rgb(180, 30, 180)', width=3),
+                        name='Theoretical Min',
+                        line=dict(color=color_theory_min, width=3),
                         marker=dict(
                             symbol='diamond',
                             size=8,
-                            color='rgb(180, 30, 180)',
+                            color=color_theory_min,
                             line=dict(color='white', width=1)
                         ),
                         hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
@@ -1321,7 +1443,7 @@ with tab1:
                     fig.update_layout(
                         title={
                             'text': f'Eigenvalue Analysis (Previous Result)',
-                            'font': {'size': 24, 'color': '#1E88E5'},
+                            'font': {'size': 24, 'color': '#0e1117'},
                             'y': 0.95,
                             'x': 0.5,
                             'xanchor': 'center',
@@ -1339,8 +1461,8 @@ with tab1:
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True
                         },
-                        plot_bgcolor='rgba(240, 240, 240, 0.8)',
-                        paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                        plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                        paper_bgcolor='rgba(255, 255, 255, 0.8)',
                         hovermode='closest',
                         legend={
                             'font': {'size': 14},
@@ -1385,7 +1507,11 @@ with tab2:
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
-        st.markdown("### Calculation Controls")
+        st.markdown("### Z-Axis Range")
+        z_min = st.number_input("Z minimum", min_value=0.01, max_value=1.0, value=0.01, step=0.01,
+                             help="Minimum z value for calculation", key="z_min")
+        z_max = st.number_input("Z maximum", min_value=1.0, max_value=100.0, value=10.0, step=1.0,
+                             help="Maximum z value for calculation", key="z_max")
         cubic_points = st.slider(
             "Number of z points", 
             min_value=50, 
@@ -1395,20 +1521,22 @@ with tab2:
             help="Number of points to calculate along the z axis",
             key="cubic_points"
         )
-        
-        # Debug mode
-        cubic_debug_mode = st.checkbox("Debug Mode", value=False, key="cubic_debug")
-        
-        # Timeout setting
-        cubic_timeout = st.number_input(
-            "Computation timeout (seconds)", 
-            min_value=10, 
-            max_value=600, 
-            value=60,
-            help="Maximum time allowed for computation before timeout",
-            key="cubic_timeout"
-        )
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Advanced settings in an expander
+        with st.expander("Advanced Settings"):
+            # Debug mode
+            cubic_debug_mode = st.checkbox("Debug Mode", value=False, key="cubic_debug")
+            
+            # Timeout setting
+            cubic_timeout = st.number_input(
+                "Computation timeout (seconds)", 
+                min_value=10, 
+                max_value=600, 
+                value=60,
+                help="Maximum time allowed for computation before timeout",
+                key="cubic_timeout"
+            )
         
         # Show cubic equation
         st.markdown('<div class="math-box">', unsafe_allow_html=True)
@@ -1456,6 +1584,8 @@ with tab2:
                         str(cubic_y),
                         str(cubic_beta),
                         str(cubic_points),
+                        str(z_min),
+                        str(z_max),
                         data_file
                     ]
                     
@@ -1495,7 +1625,7 @@ with tab2:
                             real_values3 = np.array(data.get('real_values3', [0] * len(z_values)))
                             
                             # Create tabs for imaginary and real parts
-                            im_tab, real_tab = st.tabs(["Imaginary Parts", "Real Parts"])
+                            im_tab, real_tab, pattern_tab = st.tabs(["Imaginary Parts", "Real Parts", "Root Pattern"])
                             
                             # Tab for imaginary parts
                             with im_tab:
@@ -1508,7 +1638,7 @@ with tab2:
                                     y=ims_values1,
                                     mode='lines',
                                     name='Im(s₁)',
-                                    line=dict(color='rgb(220, 60, 60)', width=3),
+                                    line=dict(color=color_max, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Im(s₁): %{y:.6f}<extra>Root 1</extra>'
                                 ))
                                 
@@ -1517,7 +1647,7 @@ with tab2:
                                     y=ims_values2,
                                     mode='lines',
                                     name='Im(s₂)',
-                                    line=dict(color='rgb(60, 60, 220)', width=3),
+                                    line=dict(color=color_min, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Im(s₂): %{y:.6f}<extra>Root 2</extra>'
                                 ))
                                 
@@ -1526,7 +1656,7 @@ with tab2:
                                     y=ims_values3,
                                     mode='lines',
                                     name='Im(s₃)',
-                                    line=dict(color='rgb(30, 180, 30)', width=3),
+                                    line=dict(color=color_theory_max, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Im(s₃): %{y:.6f}<extra>Root 3</extra>'
                                 ))
                                 
@@ -1534,7 +1664,7 @@ with tab2:
                                 im_fig.update_layout(
                                     title={
                                         'text': f'Im(s) vs z Analysis: a={cubic_a}, y={cubic_y}, β={cubic_beta}',
-                                        'font': {'size': 24, 'color': '#1E88E5'},
+                                        'font': {'size': 24, 'color': '#0e1117'},
                                         'y': 0.95,
                                         'x': 0.5,
                                         'xanchor': 'center',
@@ -1553,8 +1683,8 @@ with tab2:
                                         'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                         'showgrid': True
                                     },
-                                    plot_bgcolor='rgba(240, 240, 240, 0.8)',
-                                    paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                                    plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                                    paper_bgcolor='rgba(255, 255, 255, 0.8)',
                                     hovermode='closest',
                                     legend={
                                         'font': {'size': 14},
@@ -1564,20 +1694,6 @@ with tab2:
                                     },
                                     margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
                                     height=500,
-                                    annotations=[
-                                        {
-                                            'text': f"Cubic Equation: {cubic_a}zs³ + [{cubic_a+1}z+{cubic_a}(1-{cubic_y})]s² + [z+{cubic_a+1}-{cubic_y}-{cubic_y*cubic_beta}({cubic_a-1})]s + 1 = 0",
-                                            'xref': 'paper', 'yref': 'paper',
-                                            'x': 0.5, 'y': 0.02,
-                                            'showarrow': False,
-                                            'font': {'size': 12, 'color': 'black'},
-                                            'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                                            'bordercolor': 'rgba(0, 0, 0, 0.5)',
-                                            'borderwidth': 1,
-                                            'borderpad': 4,
-                                            'align': 'center'
-                                        }
-                                    ]
                                 )
                                 
                                 # Display the interactive plot in Streamlit
@@ -1594,7 +1710,7 @@ with tab2:
                                     y=real_values1,
                                     mode='lines',
                                     name='Re(s₁)',
-                                    line=dict(color='rgb(220, 60, 60)', width=3),
+                                    line=dict(color=color_max, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Re(s₁): %{y:.6f}<extra>Root 1</extra>'
                                 ))
                                 
@@ -1603,7 +1719,7 @@ with tab2:
                                     y=real_values2,
                                     mode='lines',
                                     name='Re(s₂)',
-                                    line=dict(color='rgb(60, 60, 220)', width=3),
+                                    line=dict(color=color_min, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Re(s₂): %{y:.6f}<extra>Root 2</extra>'
                                 ))
                                 
@@ -1612,15 +1728,29 @@ with tab2:
                                     y=real_values3,
                                     mode='lines',
                                     name='Re(s₃)',
-                                    line=dict(color='rgb(30, 180, 30)', width=3),
+                                    line=dict(color=color_theory_max, width=3),
                                     hovertemplate='z: %{x:.3f}<br>Re(s₃): %{y:.6f}<extra>Root 3</extra>'
                                 ))
+                                
+                                # Add zero line for reference
+                                real_fig.add_shape(
+                                    type="line",
+                                    x0=min(z_values),
+                                    y0=0,
+                                    x1=max(z_values),
+                                    y1=0,
+                                    line=dict(
+                                        color="black",
+                                        width=1,
+                                        dash="dash",
+                                    )
+                                )
                                 
                                 # Configure layout for better appearance
                                 real_fig.update_layout(
                                     title={
                                         'text': f'Re(s) vs z Analysis: a={cubic_a}, y={cubic_y}, β={cubic_beta}',
-                                        'font': {'size': 24, 'color': '#1E88E5'},
+                                        'font': {'size': 24, 'color': '#0e1117'},
                                         'y': 0.95,
                                         'x': 0.5,
                                         'xanchor': 'center',
@@ -1639,8 +1769,8 @@ with tab2:
                                         'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                         'showgrid': True
                                     },
-                                    plot_bgcolor='rgba(240, 240, 240, 0.8)',
-                                    paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                                    plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                                    paper_bgcolor='rgba(255, 255, 255, 0.8)',
                                     hovermode='closest',
                                     legend={
                                         'font': {'size': 14},
@@ -1655,29 +1785,175 @@ with tab2:
                                 # Display the interactive plot in Streamlit
                                 st.plotly_chart(real_fig, use_container_width=True)
                             
+                            # Tab for root pattern
+                            with pattern_tab:
+                                # Count different patterns
+                                zero_count = 0
+                                positive_count = 0
+                                negative_count = 0
+                                
+                                # Count points that match the pattern "one negative, one positive, one zero"
+                                pattern_count = 0
+                                all_zeros_count = 0
+                                
+                                for i in range(len(z_values)):
+                                    # Count roots at this z value
+                                    zeros = 0
+                                    positives = 0
+                                    negatives = 0
+                                    
+                                    for r in [real_values1[i], real_values2[i], real_values3[i]]:
+                                        if abs(r) < 1e-6:
+                                            zeros += 1
+                                        elif r > 0:
+                                            positives += 1
+                                        else:
+                                            negatives += 1
+                                            
+                                    if zeros == 3:
+                                        all_zeros_count += 1
+                                    elif zeros == 1 and positives == 1 and negatives == 1:
+                                        pattern_count += 1
+                                
+                                # Create a summary plot
+                                st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("Points with pattern (1 neg, 1 pos, 1 zero)", f"{pattern_count}/{len(z_values)}")
+                                with col2:
+                                    st.metric("Points with all zeros", f"{all_zeros_count}/{len(z_values)}")
+                                st.markdown('</div>', unsafe_allow_html=True)
+                                
+                                # Detailed pattern analysis plot
+                                pattern_fig = go.Figure()
+                                
+                                # Create colors for root types
+                                colors_at_z = []
+                                patterns_at_z = []
+                                
+                                for i in range(len(z_values)):
+                                    # Count roots at this z value
+                                    zeros = 0
+                                    positives = 0
+                                    negatives = 0
+                                    
+                                    for r in [real_values1[i], real_values2[i], real_values3[i]]:
+                                        if abs(r) < 1e-6:
+                                            zeros += 1
+                                        elif r > 0:
+                                            positives += 1
+                                        else:
+                                            negatives += 1
+                                    
+                                    # Determine pattern color
+                                    if zeros == 3:
+                                        colors_at_z.append('#4CAF50')  # Green for all zeros
+                                        patterns_at_z.append('All zeros')
+                                    elif zeros == 1 and positives == 1 and negatives == 1:
+                                        colors_at_z.append('#2196F3')  # Blue for desired pattern
+                                        patterns_at_z.append('1 neg, 1 pos, 1 zero')
+                                    else:
+                                        colors_at_z.append('#F44336')  # Red for other patterns
+                                        patterns_at_z.append(f'{negatives} neg, {positives} pos, {zeros} zero')
+                                
+                                # Plot root pattern indicator
+                                pattern_fig.add_trace(go.Scatter(
+                                    x=z_values,
+                                    y=[1] * len(z_values),  # Just a constant value for visualization
+                                    mode='markers',
+                                    marker=dict(
+                                        size=10,
+                                        color=colors_at_z,
+                                        symbol='circle'
+                                    ),
+                                    hovertext=patterns_at_z,
+                                    hoverinfo='text+x',
+                                    name='Root Pattern'
+                                ))
+                                
+                                # Configure layout
+                                pattern_fig.update_layout(
+                                    title={
+                                        'text': 'Root Pattern Analysis',
+                                        'font': {'size': 24, 'color': '#0e1117'},
+                                        'y': 0.95,
+                                        'x': 0.5,
+                                        'xanchor': 'center',
+                                        'yanchor': 'top'
+                                    },
+                                    xaxis={
+                                        'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
+                                        'tickfont': {'size': 14},
+                                        'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                                        'showgrid': True,
+                                        'type': 'log'
+                                    },
+                                    yaxis={
+                                        'showticklabels': False,
+                                        'showgrid': False,
+                                        'zeroline': False,
+                                    },
+                                    plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                                    paper_bgcolor='rgba(255, 255, 255, 0.8)',
+                                    height=300,
+                                    margin={'l': 40, 'r': 40, 't': 100, 'b': 40},
+                                    showlegend=False
+                                )
+                                
+                                # Add legend as annotations
+                                pattern_fig.add_annotation(
+                                    x=0.01, y=0.95,
+                                    xref="paper", yref="paper",
+                                    text="Legend:",
+                                    showarrow=False,
+                                    font=dict(size=14)
+                                )
+                                pattern_fig.add_annotation(
+                                    x=0.07, y=0.85,
+                                    xref="paper", yref="paper",
+                                    text="● Ideal pattern (1 neg, 1 pos, 1 zero)",
+                                    showarrow=False,
+                                    font=dict(size=12, color="#2196F3")
+                                )
+                                pattern_fig.add_annotation(
+                                    x=0.07, y=0.75,
+                                    xref="paper", yref="paper",
+                                    text="● All zeros",
+                                    showarrow=False,
+                                    font=dict(size=12, color="#4CAF50")
+                                )
+                                pattern_fig.add_annotation(
+                                    x=0.07, y=0.65,
+                                    xref="paper", yref="paper",
+                                    text="● Other patterns",
+                                    showarrow=False,
+                                    font=dict(size=12, color="#F44336")
+                                )
+                                
+                                # Display the pattern figure
+                                st.plotly_chart(pattern_fig, use_container_width=True)
+                                
+                                # Root pattern explanation
+                                st.markdown('<div class="explanation-box">', unsafe_allow_html=True)
+                                st.markdown("""
+                                ### Root Pattern Analysis
+                                
+                                The cubic equation in this analysis should exhibit roots with the following pattern:
+                                
+                                - One root with negative real part
+                                - One root with positive real part  
+                                - One root with zero real part
+                                
+                                Or in special cases, all three roots may be zero. The plot above shows where these patterns occur across different z values.
+                                
+                                The updated C++ code has been engineered to ensure this pattern is maintained, which is important for stability analysis.
+                                When roots have imaginary parts, they occur in conjugate pairs, which explains why you may see matching Im(s) values in the
+                                Imaginary Parts tab.
+                                """)
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
                             # Clear progress container
                             progress_container.empty()
-                            
-                            # Add explanation text
-                            st.markdown('<div class="explanation-box">', unsafe_allow_html=True)
-                            st.markdown("""
-                            ### Root Pattern Analysis
-                            
-                            For the cubic equation in this analysis, we observe specific patterns in the roots:
-                            
-                            - One root typically has negative real part
-                            - One root typically has positive real part  
-                            - One root has zero or near-zero real part
-                            
-                            The imaginary parts show oscillatory behavior, with some z values producing purely real roots 
-                            (Im(s) = 0) and others producing complex roots with non-zero imaginary parts. This pattern 
-                            is consistent with the expected behavior of cubic equations and has important implications 
-                            for system stability analysis.
-                            
-                            The imaginary parts represent oscillatory behavior in the system, while the real parts 
-                            represent exponential growth (positive) or decay (negative).
-                            """)
-                            st.markdown('</div>', unsafe_allow_html=True)
                             
                         except json.JSONDecodeError as e:
                             st.error(f"Error parsing JSON results: {str(e)}")
@@ -1710,75 +1986,167 @@ with tab2:
                     real_values2 = np.array(data.get('real_values2', [0] * len(z_values)))
                     real_values3 = np.array(data.get('real_values3', [0] * len(z_values)))
                     
-                    # Show previous results with Imaginary parts
-                    fig = go.Figure()
+                    # Create tabs for previous results
+                    prev_im_tab, prev_real_tab = st.tabs(["Previous Imaginary Parts", "Previous Real Parts"])
                     
-                    # Add traces for each root's imaginary part
-                    fig.add_trace(go.Scatter(
-                        x=z_values, 
-                        y=ims_values1,
-                        mode='lines',
-                        name='Im(s₁)',
-                        line=dict(color='rgb(220, 60, 60)', width=3),
-                        hovertemplate='z: %{x:.3f}<br>Im(s₁): %{y:.6f}<extra>Root 1</extra>'
-                    ))
+                    # Tab for imaginary parts
+                    with prev_im_tab:
+                        # Show previous results with Imaginary parts
+                        fig = go.Figure()
+                        
+                        # Add traces for each root's imaginary part
+                        fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=ims_values1,
+                            mode='lines',
+                            name='Im(s₁)',
+                            line=dict(color=color_max, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Im(s₁): %{y:.6f}<extra>Root 1</extra>'
+                        ))
+                        
+                        fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=ims_values2,
+                            mode='lines',
+                            name='Im(s₂)',
+                            line=dict(color=color_min, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Im(s₂): %{y:.6f}<extra>Root 2</extra>'
+                        ))
+                        
+                        fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=ims_values3,
+                            mode='lines',
+                            name='Im(s₃)',
+                            line=dict(color=color_theory_max, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Im(s₃): %{y:.6f}<extra>Root 3</extra>'
+                        ))
+                        
+                        # Configure layout for better appearance
+                        fig.update_layout(
+                            title={
+                                'text': 'Im(s) vs z Analysis (Previous Result)',
+                                'font': {'size': 24, 'color': '#0e1117'},
+                                'y': 0.95,
+                                'x': 0.5,
+                                'xanchor': 'center',
+                                'yanchor': 'top'
+                            },
+                            xaxis={
+                                'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
+                                'tickfont': {'size': 14},
+                                'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                                'showgrid': True,
+                                'type': 'log'  # Use logarithmic scale for better visualization
+                            },
+                            yaxis={
+                                'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
+                                'tickfont': {'size': 14},
+                                'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                                'showgrid': True
+                            },
+                            plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                            paper_bgcolor='rgba(255, 255, 255, 0.8)',
+                            hovermode='closest',
+                            legend={
+                                'font': {'size': 14},
+                                'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                                'bordercolor': 'rgba(200, 200, 200, 0.5)',
+                                'borderwidth': 1
+                            },
+                            margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
+                            height=500
+                        )
+                        
+                        # Display the interactive plot in Streamlit
+                        st.plotly_chart(fig, use_container_width=True)
                     
-                    fig.add_trace(go.Scatter(
-                        x=z_values, 
-                        y=ims_values2,
-                        mode='lines',
-                        name='Im(s₂)',
-                        line=dict(color='rgb(60, 60, 220)', width=3),
-                        hovertemplate='z: %{x:.3f}<br>Im(s₂): %{y:.6f}<extra>Root 2</extra>'
-                    ))
+                    # Tab for real parts
+                    with prev_real_tab:
+                        # Create an interactive plot for real parts
+                        real_fig = go.Figure()
+                        
+                        # Add traces for each root's real part
+                        real_fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=real_values1,
+                            mode='lines',
+                            name='Re(s₁)',
+                            line=dict(color=color_max, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Re(s₁): %{y:.6f}<extra>Root 1</extra>'
+                        ))
+                        
+                        real_fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=real_values2,
+                            mode='lines',
+                            name='Re(s₂)',
+                            line=dict(color=color_min, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Re(s₂): %{y:.6f}<extra>Root 2</extra>'
+                        ))
+                        
+                        real_fig.add_trace(go.Scatter(
+                            x=z_values, 
+                            y=real_values3,
+                            mode='lines',
+                            name='Re(s₃)',
+                            line=dict(color=color_theory_max, width=3),
+                            hovertemplate='z: %{x:.3f}<br>Re(s₃): %{y:.6f}<extra>Root 3</extra>'
+                        ))
+                        
+                        # Add zero line for reference
+                        real_fig.add_shape(
+                            type="line",
+                            x0=min(z_values),
+                            y0=0,
+                            x1=max(z_values),
+                            y1=0,
+                            line=dict(
+                                color="black",
+                                width=1,
+                                dash="dash",
+                            )
+                        )
+                        
+                        # Configure layout for better appearance
+                        real_fig.update_layout(
+                            title={
+                                'text': 'Re(s) vs z Analysis (Previous Result)',
+                                'font': {'size': 24, 'color': '#0e1117'},
+                                'y': 0.95,
+                                'x': 0.5,
+                                'xanchor': 'center',
+                                'yanchor': 'top'
+                            },
+                            xaxis={
+                                'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
+                                'tickfont': {'size': 14},
+                                'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                                'showgrid': True,
+                                'type': 'log'
+                            },
+                            yaxis={
+                                'title': {'text': 'Re(s)', 'font': {'size': 18, 'color': '#424242'}},
+                                'tickfont': {'size': 14},
+                                'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                                'showgrid': True
+                            },
+                            plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                            paper_bgcolor='rgba(255, 255, 255, 0.8)',
+                            hovermode='closest',
+                            legend={
+                                'font': {'size': 14},
+                                'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                                'bordercolor': 'rgba(200, 200, 200, 0.5)',
+                                'borderwidth': 1
+                            },
+                            margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
+                            height=500
+                        )
+                        
+                        # Display the interactive plot in Streamlit
+                        st.plotly_chart(real_fig, use_container_width=True)
                     
-                    fig.add_trace(go.Scatter(
-                        x=z_values, 
-                        y=ims_values3,
-                        mode='lines',
-                        name='Im(s₃)',
-                        line=dict(color='rgb(30, 180, 30)', width=3),
-                        hovertemplate='z: %{x:.3f}<br>Im(s₃): %{y:.6f}<extra>Root 3</extra>'
-                    ))
-                    
-                    # Configure layout for better appearance
-                    fig.update_layout(
-                        title={
-                            'text': f'Im(s) vs z Analysis (Previous Result)',
-                            'font': {'size': 24, 'color': '#1E88E5'},
-                            'y': 0.95,
-                            'x': 0.5,
-                            'xanchor': 'center',
-                            'yanchor': 'top'
-                        },
-                        xaxis={
-                            'title': {'text': 'z (logarithmic scale)', 'font': {'size': 18, 'color': '#424242'}},
-                            'tickfont': {'size': 14},
-                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                            'showgrid': True,
-                            'type': 'log'  # Use logarithmic scale for better visualization
-                        },
-                        yaxis={
-                            'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
-                            'tickfont': {'size': 14},
-                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                            'showgrid': True
-                        },
-                        plot_bgcolor='rgba(240, 240, 240, 0.8)',
-                        paper_bgcolor='rgba(249, 249, 249, 0.8)',
-                        hovermode='closest',
-                        legend={
-                            'font': {'size': 14},
-                            'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                            'bordercolor': 'rgba(200, 200, 200, 0.5)',
-                            'borderwidth': 1
-                        },
-                        margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
-                        height=600
-                    )
-                    
-                    # Display the interactive plot in Streamlit
-                    st.plotly_chart(fig, use_container_width=True)
                     st.info("This is the previous analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
                     
                 except Exception as e:
@@ -1791,19 +2159,13 @@ with tab2:
 
 # Add footer with instructions
 st.markdown("""
----
-### Instructions for Using the Dashboard
-
-1. **Select a tab** at the top to choose between Eigenvalue Analysis and Im(s) vs z Analysis
-2. **Adjust parameters** in the left panel to configure your analysis
-3. **Click the Generate button** to run the analysis with the selected parameters
-4. **Explore the results** in the interactive plot
-5. For the Im(s) vs z Analysis, you can toggle between Imaginary and Real parts to see different aspects of the cubic roots
-
-If you encounter any issues with compilation, try clicking the "Recompile C++ Code" button in the sidebar.
-
-<div class="footnote">
-This dashboard analyzes the properties of cubic equations and eigenvalues for matrix analysis.
-The Im(s) vs z Analysis shows the behavior of cubic roots, with specific patterns of one negative, one positive, and one zero or near-zero root.
+<div class="footer">
+    <h3>About the Matrix Analysis Dashboard</h3>
+    <p>This dashboard performs two types of analyses:</p>
+    <ol>
+        <li><strong>Eigenvalue Analysis:</strong> Computes eigenvalues of random matrices with specific structures, showing empirical and theoretical results.</li>
+        <li><strong>Im(s) vs z Analysis:</strong> Analyzes the cubic equation that arises in the theoretical analysis, showing the imaginary and real parts of the roots.</li>
+    </ol>
+    <p>Developed using Streamlit and C++ for high-performance numerical calculations.</p>
 </div>
 """, unsafe_allow_html=True)
