@@ -58,6 +58,12 @@ st.markdown("""
         background-color: #1E88E5 !important;
         color: white !important;
     }
+    .math-box {
+        background-color: #f8f9fa;
+        border-left: 3px solid #1E88E5;
+        padding: 10px;
+        margin: 10px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -199,7 +205,7 @@ with tab1:
                     if os.path.exists(data_file):
                         os.remove(data_file)
                     
-                    # Execute the C++ program
+                    # Execute the C++ program - FIXED ARGUMENTS ORDER
                     cmd = [
                         executable,
                         "eigenvalues",
@@ -525,7 +531,7 @@ with tab1:
                     st.info("This is the previous analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
                     
                 except Exception as e:
-                    st.info("👈 Set parameters and click 'Generate Analysis' to create a visualization.")
+                    st.info("👈 Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
             else:
                 # Show placeholder
                 st.info("👈 Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
@@ -561,19 +567,11 @@ with tab2:
             key="cubic_points"
         )
         
-        cubic_range = st.slider(
-            "z range", 
-            min_value=0.1, 
-            max_value=20.0, 
-            value=(0.01, 10.0), 
-            step=0.1,
-            help="Range of z values to calculate",
-            key="cubic_range"
-        )
-        
         # Show cubic equation
+        st.markdown('<div class="math-box">', unsafe_allow_html=True)
         st.markdown("### Cubic Equation")
         st.latex(r"zas^3 + [z(a+1)+a(1-y)]\,s^2 + [z+(a+1)-y-y\beta (a-1)]\,s + 1 = 0")
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # Generate button
         cubic_generate_button = st.button("Generate Im(s) vs z Analysis", 
@@ -607,7 +605,7 @@ with tab2:
                     if os.path.exists(data_file):
                         os.remove(data_file)
                     
-                    # Execute the C++ program
+                    # Execute the C++ program - FIXED ARGUMENTS ORDER
                     cmd = [
                         executable,
                         "cubic",
@@ -683,13 +681,12 @@ with tab2:
                                 'yanchor': 'top'
                             },
                             xaxis={
-                                'title': 'z',
+                                'title': 'z (logarithmic scale)',
                                 'titlefont': {'size': 18, 'color': '#424242'},
                                 'tickfont': {'size': 14},
                                 'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                 'showgrid': True,
-                                'type': 'log',  # Use logarithmic scale for better visualization
-                                'title': 'z (logarithmic scale)'
+                                'type': 'log'  # Use logarithmic scale for better visualization
                             },
                             yaxis={
                                 'title': 'Im(s)',
@@ -856,3 +853,22 @@ with tab2:
                 st.info("👈 Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
         
         st.markdown('</div>', unsafe_allow_html=True)
+
+# Add footer with information
+with st.expander("About this Application"):
+    st.markdown("""
+    ## Matrix Analysis Dashboard
+    
+    This application provides tools for analyzing matrix properties and related cubic equations:
+    
+    ### Tab 1: Eigenvalue Analysis
+    Visualizes the relationship between empirical and theoretical eigenvalues of matrices as a function of β.
+    
+    ### Tab 2: Im(s) vs z Analysis
+    Explores the imaginary parts of the roots of the cubic equation:
+    ```
+    zas³ + [z(a+1)+a(1-y)]s² + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
+    ```
+    
+    The application uses C++ for high-performance numerical calculations and Python with Streamlit and Plotly for the interactive user interface and visualizations.
+    """)
