@@ -1,6 +1,4 @@
+libopencv-dev
+python3-opencv
 build-essential
 cmake
-python3-dev
-libeigen3-dev
-python3-pybind11
-pkg-config
