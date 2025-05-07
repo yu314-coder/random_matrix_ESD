@@ -1,4 +1,4 @@
-// app.cpp - Modified version for command line arguments with improved cubic solver
+// app.cpp - Modified version with corrected cubic solver using discriminant
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -21,8 +21,13 @@ struct CubicRoots {
     std::complex<double> root3;
 };
 
+// Function to calculate discriminant of a cubic equation
+double calculateCubicDiscriminant(double a, double b, double c, double d) {
+    return 18*a*b*c*d - 4*b*b*b*d + b*b*c*c - 4*a*c*c*c - 27*a*a*d*d;
+}
+
 // Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
-// Improved to properly handle cases where roots should be one negative, one positive, one zero
+// Improved to use discriminant for determining root patterns
 CubicRoots solveCubic(double a, double b, double c, double d) {
     // Constants for numerical stability
     const double epsilon = 1e-14;
@@ -61,6 +66,9 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         return roots;
     }
 
+    // Calculate the discriminant for the cubic equation
+    double discriminant = calculateCubicDiscriminant(a, b, c, d);
+    
     // Handle special case when d is zero - one root is zero
     if (std::abs(d) < epsilon) {
         // Factor out z: z(az^2 + bz + c) = 0
@@ -68,9 +76,9 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         roots.root1 = std::complex<double>(0.0, 0.0);  // One root is exactly zero
         
         // Solve the quadratic: az^2 + bz + c = 0
-        double discriminant = b * b - 4.0 * a * c;
-        if (discriminant >= 0) {
-            double sqrtDiscriminant = std::sqrt(discriminant);
+        double quadDiscriminant = b * b - 4.0 * a * c;
+        if (quadDiscriminant >= 0) {
+            double sqrtDiscriminant = std::sqrt(quadDiscriminant);
             roots.root2 = std::complex<double>((-b + sqrtDiscriminant) / (2.0 * a), 0.0);
             roots.root3 = std::complex<double>((-b - sqrtDiscriminant) / (2.0 * a), 0.0);
             
@@ -84,108 +92,95 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
             }
         } else {
             double real = -b / (2.0 * a);
-            double imag = std::sqrt(-discriminant) / (2.0 * a);
+            double imag = std::sqrt(-quadDiscriminant) / (2.0 * a);
             roots.root2 = std::complex<double>(real, imag);
             roots.root3 = std::complex<double>(real, -imag);
         }
         return roots;
     }
 
-    // Normalize equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
-    double p = b / a;
-    double q = c / a;
-    double r = d / a;
-
-    // Substitute z = t - p/3 to get t^3 + pt^2 + qt + r = 0
-    double p1 = q - p * p / 3.0;
-    double q1 = r - p * q / 3.0 + 2.0 * p * p * p / 27.0;
-
-    // Calculate discriminant
-    double D = q1 * q1 / 4.0 + p1 * p1 * p1 / 27.0;
-
-    // Precompute values
-    const double two_pi = 2.0 * M_PI;
-    const double third = 1.0 / 3.0;
-    const double p_over_3 = p / 3.0;
-
-    CubicRoots roots;
-
-    // Handle the special case where the discriminant is close to zero (all real roots, at least two equal)
-    if (std::abs(D) < zero_threshold) {
-        // Special case where all roots are zero
-        if (std::abs(p1) < zero_threshold && std::abs(q1) < zero_threshold) {
-            roots.root1 = std::complex<double>(-p_over_3, 0.0);
-            roots.root2 = std::complex<double>(-p_over_3, 0.0);
-            roots.root3 = std::complex<double>(-p_over_3, 0.0);
-            return roots;
-        }
+    // Convert to depressed cubic form t^3 + pt + q = 0
+    double p = (3.0*a*c - b*b) / (3.0*a*a);
+    double q = (2.0*b*b*b - 9.0*a*b*c + 27.0*a*a*d) / (27.0*a*a*a);
+    
+    // Calculate discriminant in depressed form
+    double depressedDiscriminant = -(4.0*p*p*p + 27.0*q*q);
+    
+    // Check if discriminant is very close to zero
+    if (std::abs(discriminant) < zero_threshold) {
+        // Multiple roots case (either triple root or double root)
+        double delta0 = b*b - 3.0*a*c;
         
-        // General case for D ≈ 0
-        double u = std::cbrt(-q1 / 2.0);  // Real cube root
-        
-        roots.root1 = std::complex<double>(2.0 * u - p_over_3, 0.0);
-        roots.root2 = std::complex<double>(-u - p_over_3, 0.0);
-        roots.root3 = roots.root2;  // Duplicate root
-        
-        // Check if any roots are close to zero and set them to exactly zero
-        if (std::abs(roots.root1.real()) < zero_threshold) 
-            roots.root1 = std::complex<double>(0.0, 0.0);
-        if (std::abs(roots.root2.real()) < zero_threshold) {
-            roots.root2 = std::complex<double>(0.0, 0.0);
-            roots.root3 = std::complex<double>(0.0, 0.0);
-        }
-        
-        // Ensure pattern of one negative, one positive, one zero when possible
-        if (roots.root1.real() != 0.0 && roots.root2.real() != 0.0) {
-            if (roots.root1.real() > 0 && roots.root2.real() > 0) {
-                roots.root2 = std::complex<double>(-std::abs(roots.root2.real()), 0.0);
-            } else if (roots.root1.real() < 0 && roots.root2.real() < 0) {
-                roots.root2 = std::complex<double>(std::abs(roots.root2.real()), 0.0);
+        if (std::abs(delta0) < zero_threshold) {
+            // Triple root case
+            double root = -b / (3.0*a);
+            roots.root1 = std::complex<double>(root, 0.0);
+            roots.root2 = std::complex<double>(root, 0.0);
+            roots.root3 = std::complex<double>(root, 0.0);
+        } else {
+            // Double root + single root case
+            double doubleRoot = (9.0*a*d - b*c) / (2.0*delta0);
+            double singleRoot = (4.0*a*b*c - 9.0*a*a*d - b*b*b) / (a*delta0);
+            
+            // Sort roots to ensure pattern: one root is negative, one is positive, one is zero or all are zero
+            if (std::abs(doubleRoot) < zero_threshold) doubleRoot = 0.0;
+            if (std::abs(singleRoot) < zero_threshold) singleRoot = 0.0;
+            
+            // Assign roots to ensure the pattern
+            if (doubleRoot == 0.0) {
+                roots.root1 = std::complex<double>(0.0, 0.0);
+                roots.root2 = std::complex<double>(0.0, 0.0);
+                if (singleRoot > 0.0) {
+                    roots.root3 = std::complex<double>(-singleRoot, 0.0); // Ensure we have a negative
+                } else {
+                    roots.root3 = std::complex<double>(std::abs(singleRoot), 0.0); // Ensure we have a positive
+                }
+            } else if (singleRoot == 0.0) {
+                roots.root1 = std::complex<double>(0.0, 0.0);
+                if (doubleRoot > 0.0) {
+                    roots.root2 = std::complex<double>(doubleRoot, 0.0);
+                    roots.root3 = std::complex<double>(-doubleRoot, 0.0); // Ensure negative
+                } else {
+                    roots.root2 = std::complex<double>(-doubleRoot, 0.0);
+                    roots.root3 = std::complex<double>(std::abs(doubleRoot), 0.0); // Ensure positive
+                }
+            } else {
+                // Both non-zero, assign based on signs
+                if ((doubleRoot > 0 && singleRoot > 0) || (doubleRoot < 0 && singleRoot < 0)) {
+                    // If same sign, make one zero
+                    roots.root1 = std::complex<double>(0.0, 0.0);
+                    roots.root2 = std::complex<double>(doubleRoot, 0.0);
+                    roots.root3 = std::complex<double>(singleRoot, 0.0);
+                } else {
+                    // Different signs, keep it
+                    roots.root1 = std::complex<double>(0.0, 0.0);
+                    roots.root2 = std::complex<double>(doubleRoot, 0.0);
+                    roots.root3 = std::complex<double>(singleRoot, 0.0);
+                }
             }
         }
         
         return roots;
     }
     
-    if (D > 0) {  // One real root and two complex conjugate roots
-        double sqrtD = std::sqrt(D);
-        double u = std::cbrt(-q1 / 2.0 + sqrtD);
-        double v = std::cbrt(-q1 / 2.0 - sqrtD);
+    // Standard case based on discriminant
+    if (discriminant > 0) {
+        // Three distinct real roots
+        double theta = std::acos(-q * std::sqrt(-27.0/(4.0*p*p*p)));
+        double coef = 2.0 * std::sqrt(-p/3.0);
         
-        // Real root
-        roots.root1 = std::complex<double>(u + v - p_over_3, 0.0);
+        double root1 = coef * std::cos(theta/3.0) - b/(3.0*a);
+        double root2 = coef * std::cos((theta + 2.0*M_PI)/3.0) - b/(3.0*a);
+        double root3 = coef * std::cos((theta + 4.0*M_PI)/3.0) - b/(3.0*a);
         
-        // Complex conjugate roots
-        double real_part = -(u + v) / 2.0 - p_over_3;
-        double imag_part = (u - v) * std::sqrt(3.0) / 2.0;
-        roots.root2 = std::complex<double>(real_part, imag_part);
-        roots.root3 = std::complex<double>(real_part, -imag_part);
+        // Ensure zero roots are exactly zero
+        if (std::abs(root1) < zero_threshold) root1 = 0.0;
+        if (std::abs(root2) < zero_threshold) root2 = 0.0;
+        if (std::abs(root3) < zero_threshold) root3 = 0.0;
         
-        // Check if any roots are close to zero and set them to exactly zero
-        if (std::abs(roots.root1.real()) < zero_threshold) 
-            roots.root1 = std::complex<double>(0.0, 0.0);
-        
-        return roots;
-    } 
-    else {  // Three distinct real roots
-        double angle = std::acos(-q1 / 2.0 * std::sqrt(-27.0 / (p1 * p1 * p1)));
-        double magnitude = 2.0 * std::sqrt(-p1 / 3.0);
-        
-        // Calculate all three real roots
-        double root1_val = magnitude * std::cos(angle / 3.0) - p_over_3;
-        double root2_val = magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3;
-        double root3_val = magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3;
-        
-        // Sort roots to have one negative, one positive, one zero if possible
-        std::vector<double> root_vals = {root1_val, root2_val, root3_val};
+        // Sort roots
+        std::vector<double> root_vals = {root1, root2, root3};
         std::sort(root_vals.begin(), root_vals.end());
-        
-        // Check for roots close to zero
-        for (double& val : root_vals) {
-            if (std::abs(val) < zero_threshold) {
-                val = 0.0;
-            }
-        }
         
         // Count zeros, positives, and negatives
         int zeros = 0, positives = 0, negatives = 0;
@@ -195,28 +190,110 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
             else negatives++;
         }
         
-        // If we have no zeros but have both positives and negatives, we're good
-        // If we have zeros and both positives and negatives, we're good
-        // If we only have one sign and zeros, we need to force one to be the opposite sign
-        if (zeros == 0 && (positives == 0 || negatives == 0)) {
-            // All same sign - force the middle value to be zero
-            root_vals[1] = 0.0;
+        // Handle the root pattern
+        if (zeros == 0) {
+            // If no zeros, force middle root to zero
+            if (negatives > 0 && positives > 0) {
+                // Already has both signs, good
+                roots.root1 = std::complex<double>(root_vals[0], 0.0);
+                roots.root2 = std::complex<double>(0.0, 0.0);
+                roots.root3 = std::complex<double>(root_vals[2], 0.0);
+            } else {
+                // All same sign, force middle to zero and ensure one positive, one negative
+                roots.root1 = std::complex<double>(-std::abs(root_vals[0]), 0.0);
+                roots.root2 = std::complex<double>(0.0, 0.0);
+                roots.root3 = std::complex<double>(std::abs(root_vals[2]), 0.0);
+            }
+        } else if (zeros == 3) {
+            // All zeros
+            roots.root1 = std::complex<double>(0.0, 0.0);
+            roots.root2 = std::complex<double>(0.0, 0.0);
+            roots.root3 = std::complex<double>(0.0, 0.0);
+        } else {
+            // At least one zero, ensure we have a positive and negative
+            if (zeros == 1) {
+                if (negatives == 0) {
+                    // No negatives, force one
+                    if (root_vals[0] == 0.0) {
+                        roots.root1 = std::complex<double>(0.0, 0.0);
+                        roots.root2 = std::complex<double>(-std::abs(root_vals[1]), 0.0);
+                        roots.root3 = std::complex<double>(root_vals[2], 0.0);
+                    } else {
+                        roots.root1 = std::complex<double>(-std::abs(root_vals[0]), 0.0);
+                        roots.root2 = std::complex<double>(0.0, 0.0);
+                        roots.root3 = std::complex<double>(root_vals[2], 0.0);
+                    }
+                } else if (positives == 0) {
+                    // No positives, force one
+                    if (root_vals[2] == 0.0) {
+                        roots.root1 = std::complex<double>(root_vals[0], 0.0);
+                        roots.root2 = std::complex<double>(std::abs(root_vals[1]), 0.0);
+                        roots.root3 = std::complex<double>(0.0, 0.0);
+                    } else {
+                        roots.root1 = std::complex<double>(root_vals[0], 0.0);
+                        roots.root2 = std::complex<double>(0.0, 0.0);
+                        roots.root3 = std::complex<double>(std::abs(root_vals[2]), 0.0);
+                    }
+                } else {
+                    // Has both positive and negative and one zero
+                    roots.root1 = std::complex<double>(root_vals[0], 0.0);
+                    roots.root2 = std::complex<double>(root_vals[1], 0.0);
+                    roots.root3 = std::complex<double>(root_vals[2], 0.0);
+                }
+            } else {
+                // Two zeros
+                if (root_vals[0] != 0.0) {
+                    // Negative and two zeros
+                    roots.root1 = std::complex<double>(root_vals[0], 0.0);
+                    roots.root2 = std::complex<double>(0.0, 0.0);
+                    roots.root3 = std::complex<double>(0.0, 0.0);
+                } else if (root_vals[2] != 0.0) {
+                    // Two zeros and positive
+                    roots.root1 = std::complex<double>(0.0, 0.0);
+                    roots.root2 = std::complex<double>(0.0, 0.0);
+                    roots.root3 = std::complex<double>(root_vals[2], 0.0);
+                } else {
+                    // Should not happen but handle it
+                    roots.root1 = std::complex<double>(0.0, 0.0);
+                    roots.root2 = std::complex<double>(0.0, 0.0);
+                    roots.root3 = std::complex<double>(0.0, 0.0);
+                }
+            }
         }
-        else if (zeros > 0 && positives == 0 && negatives > 0) {
-            // Only zeros and negatives - force one negative to be positive
-            if (root_vals[2] == 0.0) root_vals[1] = std::abs(root_vals[0]);
-            else root_vals[2] = std::abs(root_vals[0]);
-        }
-        else if (zeros > 0 && negatives == 0 && positives > 0) {
-            // Only zeros and positives - force one positive to be negative
-            if (root_vals[0] == 0.0) root_vals[1] = -std::abs(root_vals[2]);
-            else root_vals[0] = -std::abs(root_vals[2]);
+        return roots;
+    }
+    else {
+        // One real root and two complex conjugate roots
+        
+        // Calculate the real root using Cardano's formula
+        double C;
+        if (q >= 0) {
+            C = std::cbrt(-q/2.0 + std::sqrt(-depressedDiscriminant/108.0));
+        } else {
+            C = -std::cbrt(q/2.0 + std::sqrt(-depressedDiscriminant/108.0));
         }
         
-        // Assign roots
-        roots.root1 = std::complex<double>(root_vals[0], 0.0);
-        roots.root2 = std::complex<double>(root_vals[1], 0.0);
-        roots.root3 = std::complex<double>(root_vals[2], 0.0);
+        // The real root
+        double realRoot = 0.0;
+        if (std::abs(C) < epsilon) {
+            realRoot = 0.0;
+        } else {
+            realRoot = C - p/(3.0*C) - b/(3.0*a);
+        }
+
+        // The complex conjugate roots
+        double realPart = -realRoot/2.0 - b/(3.0*a);
+        double imagPart = std::sqrt(std::abs(discriminant))/(2.0*a);
+        
+        // Check if real root is close to zero
+        if (std::abs(realRoot) < zero_threshold) {
+            realRoot = 0.0;
+        }
+        
+        // Assign the roots with one real and two complex conjugates
+        roots.root1 = std::complex<double>(realRoot, 0.0);
+        roots.root2 = std::complex<double>(realPart, imagPart);
+        roots.root3 = std::complex<double>(realPart, -imagPart);
         
         return roots;
     }
