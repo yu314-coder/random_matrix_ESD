@@ -3,3 +3,4 @@ pillow
 opencv-python-headless
 numpy
 matplotlib
+plotly
