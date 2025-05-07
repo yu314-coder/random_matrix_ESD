@@ -1,4 +1,4 @@
-// app.cpp - Modified version with cubic equation solver
+// app.cpp - Modified version for command line arguments
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -111,7 +111,7 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
         z_values[i] = z;
         
         // Coefficients for the cubic equation:
-        // zas^3 + [z(a+1)+a(1-y)]s^2 + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
+        // zas³ + [z(a+1)+a(1-y)]s² + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
         double coef_a = z * a;
         double coef_b = z * (a + 1) + a * (1 - y);
         double coef_c = z + (a + 1) - y - y * beta * (a - 1);
@@ -346,10 +346,116 @@ void save_as_json(const std::string& filename,
     outfile.close();
 }
 
+// Eigenvalue analysis function
+void eigenvalueAnalysis(int n, int p, double a, double y, int fineness, 
+                      int theory_grid_points, double theory_tolerance, 
+                      const std::string& output_file) {
+    
+    std::cout << "Running eigenvalue analysis with parameters: n = " << n << ", p = " << p 
+              << ", a = " << a << ", y = " << y << ", fineness = " << fineness 
+              << ", theory_grid_points = " << theory_grid_points
+              << ", theory_tolerance = " << theory_tolerance << std::endl;
+    std::cout << "Output will be saved to: " << output_file << std::endl;
+    
+    // ─── Beta range parameters ────────────────────────────────────────
+    const int num_beta_points = fineness; // Controlled by fineness parameter
+    std::vector<double> beta_values(num_beta_points);
+    for (int i = 0; i < num_beta_points; ++i) {
+        beta_values[i] = static_cast<double>(i) / (num_beta_points - 1);
+    }
+    
+    // ─── Storage for results ────────────────────────────────────────
+    std::vector<double> max_eigenvalues(num_beta_points);
+    std::vector<double> min_eigenvalues(num_beta_points);
+    std::vector<double> theoretical_max_values(num_beta_points);
+    std::vector<double> theoretical_min_values(num_beta_points);
+    
+    // ─── Random‐Gaussian X and S_n ────────────────────────────────
+    std::mt19937_64 rng{std::random_device{}()};
+    std::normal_distribution<double> norm(0.0, 1.0);
+    
+    cv::Mat X(p, n, CV_64F);
+    for(int i = 0; i < p; ++i)
+        for(int j = 0; j < n; ++j)
+            X.at<double>(i,j) = norm(rng);
+    
+    // ─── Process each beta value ─────────────────────────────────
+    for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
+        double beta = beta_values[beta_idx];
+        
+        // Compute theoretical values with customizable precision
+        theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
+        theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
+        
+        // ─── Build T_n matrix ──────────────────────────────────
+        int k = static_cast<int>(std::floor(beta * p));
+        std::vector<double> diags(p, 1.0);
+        std::fill_n(diags.begin(), k, a);
+        std::shuffle(diags.begin(), diags.end(), rng);
+        
+        cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
+        for(int i = 0; i < p; ++i){
+            T_n.at<double>(i,i) = diags[i];
+        }
+        
+        // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
+        cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
+        
+        // ─── Compute eigenvalues of B ────────────────────────────
+        cv::Mat eigVals;
+        cv::eigen(B, eigVals);
+        std::vector<double> eigs(n);  
+        for(int i = 0; i < n; ++i)
+            eigs[i] = eigVals.at<double>(i, 0);
+        
+        max_eigenvalues[beta_idx] = *std::max_element(eigs.begin(), eigs.end());
+        min_eigenvalues[beta_idx] = *std::min_element(eigs.begin(), eigs.end());
+        
+        // Progress indicator for Streamlit
+        double progress = static_cast<double>(beta_idx + 1) / num_beta_points;
+        std::cout << "PROGRESS:" << progress << std::endl;
+        
+        // Less verbose output for Streamlit
+        if (beta_idx % 20 == 0 || beta_idx == num_beta_points - 1) {
+            std::cout << "Processing beta = " << beta 
+                    << " (" << beta_idx+1 << "/" << num_beta_points << ")" << std::endl;
+        }
+    }
+    
+    // Save data as JSON for Python to read
+    save_as_json(output_file, beta_values, max_eigenvalues, min_eigenvalues, 
+                theoretical_max_values, theoretical_min_values);
+    
+    std::cout << "Data saved to " << output_file << std::endl;
+}
+
+// Cubic equation analysis function
+void cubicAnalysis(double a, double y, double beta, int num_points, const std::string& output_file) {
+    std::cout << "Running cubic equation analysis with parameters: a = " << a 
+              << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points << std::endl;
+    std::cout << "Output will be saved to: " << output_file << std::endl;
+    
+    // Compute Im(s) vs z data
+    std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
+    
+    // Save to JSON
+    saveImSDataAsJSON(output_file, ims_data);
+    
+    std::cout << "Cubic equation data saved to " << output_file << std::endl;
+}
+
 int main(int argc, char* argv[]) {
-    // Check command mode
+    // Print received arguments for debugging
+    std::cout << "Received " << argc << " arguments:" << std::endl;
+    for (int i = 0; i < argc; ++i) {
+        std::cout << "  argv[" << i << "]: " << argv[i] << std::endl;
+    }
+    
+    // Check for mode argument
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " [eigenvalues|cubic] [parameters...]" << std::endl;
+        std::cerr << "Error: Missing mode argument." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+        std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
         return 1;
     }
     
@@ -357,8 +463,10 @@ int main(int argc, char* argv[]) {
     
     if (mode == "eigenvalues") {
         // ─── Eigenvalue analysis mode ───────────────────────────────────────────
-        if (argc != 9) {
+        if (argc != 10) {
+            std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
             std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+            std::cerr << "Received " << argc << " arguments, expected 10." << std::endl;
             return 1;
         }
         
@@ -370,90 +478,15 @@ int main(int argc, char* argv[]) {
         int theory_grid_points = std::stoi(argv[7]);
         double theory_tolerance = std::stod(argv[8]);
         std::string output_file = argv[9];
-        const double b = 1.0;
         
-        std::cout << "Running eigenvalue analysis with parameters: n = " << n << ", p = " << p 
-                << ", a = " << a << ", y = " << y << ", fineness = " << fineness 
-                << ", theory_grid_points = " << theory_grid_points
-                << ", theory_tolerance = " << theory_tolerance << std::endl;
-        std::cout << "Output will be saved to: " << output_file << std::endl;
-        
-        // ─── Beta range parameters ────────────────────────────────────────
-        const int num_beta_points = fineness; // Controlled by fineness parameter
-        std::vector<double> beta_values(num_beta_points);
-        for (int i = 0; i < num_beta_points; ++i) {
-            beta_values[i] = static_cast<double>(i) / (num_beta_points - 1);
-        }
-        
-        // ─── Storage for results ────────────────────────────────────────
-        std::vector<double> max_eigenvalues(num_beta_points);
-        std::vector<double> min_eigenvalues(num_beta_points);
-        std::vector<double> theoretical_max_values(num_beta_points);
-        std::vector<double> theoretical_min_values(num_beta_points);
-        
-        // ─── Random‐Gaussian X and S_n ────────────────────────────────
-        std::mt19937_64 rng{std::random_device{}()};
-        std::normal_distribution<double> norm(0.0, 1.0);
-        
-        cv::Mat X(p, n, CV_64F);
-        for(int i = 0; i < p; ++i)
-            for(int j = 0; j < n; ++j)
-                X.at<double>(i,j) = norm(rng);
-        
-        // ─── Process each beta value ─────────────────────────────────
-        for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
-            double beta = beta_values[beta_idx];
-            
-            // Compute theoretical values with customizable precision
-            theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
-            theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
-            
-            // ─── Build T_n matrix ──────────────────────────────────
-            int k = static_cast<int>(std::floor(beta * p));
-            std::vector<double> diags(p);
-            std::fill_n(diags.begin(), k, a);
-            std::fill_n(diags.begin()+k, p-k, b);
-            std::shuffle(diags.begin(), diags.end(), rng);
-            
-            cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
-            for(int i = 0; i < p; ++i){
-                T_n.at<double>(i,i) = diags[i];
-            }
-            
-            // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
-            cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
-            
-            // ─── Compute eigenvalues of B ────────────────────────────
-            cv::Mat eigVals;
-            cv::eigen(B, eigVals);
-            std::vector<double> eigs(n);  
-            for(int i = 0; i < n; ++i)
-                eigs[i] = eigVals.at<double>(i, 0);
-            
-            max_eigenvalues[beta_idx] = *std::max_element(eigs.begin(), eigs.end());
-            min_eigenvalues[beta_idx] = *std::min_element(eigs.begin(), eigs.end());
-            
-            // Progress indicator for Streamlit
-            double progress = static_cast<double>(beta_idx + 1) / num_beta_points;
-            std::cout << "PROGRESS:" << progress << std::endl;
-            
-            // Less verbose output for Streamlit
-            if (beta_idx % 20 == 0 || beta_idx == num_beta_points - 1) {
-                std::cout << "Processing beta = " << beta 
-                        << " (" << beta_idx+1 << "/" << num_beta_points << ")" << std::endl;
-            }
-        }
-        
-        // Save data as JSON for Python to read
-        save_as_json(output_file, beta_values, max_eigenvalues, min_eigenvalues, 
-                    theoretical_max_values, theoretical_min_values);
-        
-        std::cout << "Data saved to " << output_file << std::endl;
+        eigenvalueAnalysis(n, p, a, y, fineness, theory_grid_points, theory_tolerance, output_file);
         
     } else if (mode == "cubic") {
         // ─── Cubic equation analysis mode ───────────────────────────────────────────
-        if (argc != 6) {
+        if (argc != 7) {
+            std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
             std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <output_file>" << std::endl;
+            std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
             return 1;
         }
         
@@ -463,20 +496,10 @@ int main(int argc, char* argv[]) {
         int num_points = std::stoi(argv[5]);
         std::string output_file = argv[6];
         
-        std::cout << "Running cubic equation analysis with parameters: a = " << a 
-                  << ", y = " << y << ", beta = " << beta << ", num_points = " << num_points << std::endl;
-        std::cout << "Output will be saved to: " << output_file << std::endl;
-        
-        // Compute Im(s) vs z data
-        std::vector<std::vector<double>> ims_data = computeImSVsZ(a, y, beta, num_points);
-        
-        // Save to JSON
-        saveImSDataAsJSON(output_file, ims_data);
-        
-        std::cout << "Cubic equation data saved to " << output_file << std::endl;
+        cubicAnalysis(a, y, beta, num_points, output_file);
         
     } else {
-        std::cerr << "Unknown mode: " << mode << std::endl;
+        std::cerr << "Error: Unknown mode: " << mode << std::endl;
         std::cerr << "Use 'eigenvalues' or 'cubic'" << std::endl;
         return 1;
     }
