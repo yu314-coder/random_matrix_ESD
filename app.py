@@ -84,13 +84,33 @@ y = p/n
 st.sidebar.text(f"Value for y = p/n: {y:.4f}")
 
 # Add fineness control
+st.sidebar.subheader("Calculation Controls")
 fineness = st.sidebar.slider(
-    "Calculation fineness", 
+    "Beta points", 
     min_value=20, 
     max_value=500, 
     value=100, 
     step=10,
-    help="Higher values give smoother curves but take longer to calculate"
+    help="Number of points to calculate along the β axis (0 to 1)"
+)
+
+# Add controls for theoretical calculation precision
+theory_grid_points = st.sidebar.slider(
+    "Theoretical grid points", 
+    min_value=100, 
+    max_value=1000, 
+    value=200, 
+    step=50,
+    help="Number of points in initial grid search for theoretical calculations"
+)
+
+theory_tolerance = st.sidebar.number_input(
+    "Theoretical tolerance", 
+    min_value=1e-12, 
+    max_value=1e-6, 
+    value=1e-10, 
+    format="%.1e",
+    help="Convergence tolerance for golden section search"
 )
 
 # Generate button
@@ -108,7 +128,17 @@ if st.sidebar.button("Generate Plot", type="primary"):
             os.remove(data_file)
         
         # Execute the C++ program
-        cmd = [executable, str(n), str(p), str(a), str(y), str(fineness), data_file]
+        cmd = [
+            executable, 
+            str(n), 
+            str(p), 
+            str(a), 
+            str(y), 
+            str(fineness), 
+            str(theory_grid_points),
+            str(theory_tolerance),
+            data_file
+        ]
         
         process = subprocess.Popen(
             cmd, 
@@ -186,8 +216,8 @@ if st.sidebar.button("Generate Plot", type="primary"):
             ax.legend(loc='best', fontsize=12, framealpha=0.9)
             
             # Add formulas as text
-            formula_text1 = r"Max Function: $\max_{k \in (0,\infty)} \frac{y\beta(a-1)k + (ak+1)((y-1)k-1)}{(ak+1)(k^2+k)y}$"
-            formula_text2 = r"Min Function: $\min_{t \in (-1/a,0)} \frac{y\beta(a-1)t + (at+1)((y-1)t-1)}{(at+1)(t^2+t)y}$"
+            formula_text1 = r"Max Function: $\max_{k \in (0,\infty)} \frac{y\beta(a-1)k + (ak+1)((y-1)k-1)}{(ak+1)(k^2+k)}$"
+            formula_text2 = r"Min Function: $\min_{t \in (-1/a,0)} \frac{y\beta(a-1)t + (at+1)((y-1)t-1)}{(at+1)(t^2+t)}$"
             
             plt.figtext(0.02, 0.02, formula_text1, fontsize=10, color='green')
             plt.figtext(0.55, 0.02, formula_text2, fontsize=10, color='purple')
@@ -233,6 +263,12 @@ if st.sidebar.button("Generate Plot", type="primary"):
                 st.write(f"Empirical Min: {min(min_eigenvalues):.6f}")
                 st.write(f"Theoretical Min: {min(theoretical_min):.6f}")
                 st.write(f"Difference: {abs(min(min_eigenvalues) - min(theoretical_min)):.6f}")
+            
+            # Display calculation settings
+            with st.expander("Calculation Settings"):
+                st.write(f"Beta points: {fineness}")
+                st.write(f"Theoretical grid points: {theory_grid_points}")
+                st.write(f"Theoretical tolerance: {theory_tolerance:.1e}")
     
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
@@ -265,13 +301,18 @@ with st.expander("About Eigenvalue Analysis"):
     - **p**: Dimension
     - **a**: Value > 1 that affects the distribution of eigenvalues
     - **y**: Value calculated as p/n that affects scaling
-    - **Fineness**: Controls the number of points calculated along the β range (0 to 1)
+    
+    ### Calculation Controls
+    
+    - **Beta points**: Number of points calculated along the β range (0 to 1)
+    - **Theoretical grid points**: Number of points in initial grid search for finding theoretical max/min
+    - **Theoretical tolerance**: Convergence tolerance for golden section search algorithm
     
     ### Mathematical Formulas
     
     Max Function: 
-    max{k ∈ (0,∞)} [yβ(a-1)k + (ak+1)((y-1)k-1)]/[(ak+1)(k²+k)y]
+    max{k ∈ (0,∞)} [yβ(a-1)k + (ak+1)((y-1)k-1)]/[(ak+1)(k²+k)]
     
     Min Function: 
-    min{t ∈ (-1/a,0)} [yβ(a-1)t + (at+1)((y-1)t-1)]/[(at+1)(t²+t)y]
+    min{t ∈ (-1/a,0)} [yβ(a-1)t + (at+1)((y-1)t-1)]/[(at+1)(t²+t)]
     """)
