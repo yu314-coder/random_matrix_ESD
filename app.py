@@ -122,23 +122,35 @@ def run_command(cmd, show_output=True):
     if show_output:
         st.code(f"Running command: {cmd_str}", language="bash")
     
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-    
-    stdout, stderr = process.communicate()
-    
-    if process.returncode != 0:
+    # Run the command
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        
         if show_output:
-            st.error(f"Command failed with return code {process.returncode}")
+            st.write("Command completed successfully.")
+            if result.stdout:
+                st.text("Output:")
+                st.code(result.stdout)
+                
+        return True, result.stdout, result.stderr
+        
+    except subprocess.CalledProcessError as e:
+        if show_output:
+            st.error(f"Command failed with return code {e.returncode}")
             st.error(f"Command: {cmd_str}")
-            st.error(f"Error output: {stderr}")
-        return False, stdout, stderr
+            st.error(f"Error output: {e.stderr}")
+        return False, e.stdout, e.stderr
     
-    return True, stdout, stderr
+    except Exception as e:
+        if show_output:
+            st.error(f"Error executing command: {str(e)}")
+        return False, "", str(e)
 
 # Create tabs for different analyses
 tab1, tab2 = st.tabs(["Eigenvalue Analysis", "Im(s) vs z Analysis"])
@@ -233,41 +245,67 @@ with tab1:
                     if os.path.exists(data_file):
                         os.remove(data_file)
                     
-                    # Build command for eigenvalue analysis
+                    # Build command for eigenvalue analysis with the proper arguments
                     cmd = [
                         executable,
-                        "eigenvalues",
-                        str(n), 
-                        str(p), 
-                        str(a), 
-                        str(y), 
-                        str(fineness), 
+                        "eigenvalues",  # Mode argument
+                        str(n),
+                        str(p),
+                        str(a),
+                        str(y),
+                        str(fineness),
                         str(theory_grid_points),
                         str(theory_tolerance),
                         data_file
                     ]
                     
-                    # Run the command with our helper function
+                    # Run the command
                     status_text.text("Running eigenvalue analysis...")
-                    success, stdout, stderr = run_command(cmd, debug_mode)
                     
-                    if not success:
-                        st.error("Eigenvalue analysis failed. Please check the debug output.")
-                        if debug_mode:
-                            st.text("Command output:")
-                            st.code(stdout)
-                            st.text("Error output:")
-                            st.code(stderr)
+                    if debug_mode:
+                        success, stdout, stderr = run_command(cmd, True)
                     else:
+                        # Start the process with pipe for stdout to read progress
+                        process = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        
+                        # Track progress from stdout
+                        success = True
+                        while True:
+                            line = process.stdout.readline()
+                            if not line and process.poll() is not None:
+                                break
+                                
+                            if line.startswith("PROGRESS:"):
+                                try:
+                                    # Update progress bar
+                                    progress_value = float(line.split(":")[1].strip())
+                                    progress_bar.progress(progress_value)
+                                    status_text.text(f"Calculating... {int(progress_value * 100)}% complete")
+                                except:
+                                    pass
+                            elif line:
+                                status_text.text(line.strip())
+                                
+                        # Get the return code and stderr
+                        returncode = process.poll()
+                        stderr = process.stderr.read()
+                        
+                        if returncode != 0:
+                            success = False
+                            st.error(f"Error executing the analysis: {stderr}")
+                    
+                    if success:
                         progress_bar.progress(1.0)
                         status_text.text("Analysis complete! Generating visualization...")
                         
                         # Check if the output file was created
                         if not os.path.exists(data_file):
                             st.error(f"Output file not created: {data_file}")
-                            if debug_mode:
-                                st.text("Command output:")
-                                st.code(stdout)
                             st.stop()
                         
                         # Load the results from the JSON file
@@ -628,34 +666,32 @@ with tab2:
                     # Build command for cubic equation analysis
                     cmd = [
                         executable,
-                        "cubic",
-                        str(cubic_a), 
-                        str(cubic_y), 
-                        str(cubic_beta), 
+                        "cubic",  # Mode argument
+                        str(cubic_a),
+                        str(cubic_y),
+                        str(cubic_beta),
                         str(cubic_points),
                         data_file
                     ]
                     
-                    # Run the command with our helper function
+                    # Run the command
                     status_text.text("Calculating Im(s) vs z values...")
-                    success, stdout, stderr = run_command(cmd, cubic_debug_mode)
                     
-                    if not success:
-                        st.error("Cubic equation analysis failed. Please check the debug output.")
-                        if cubic_debug_mode:
-                            st.text("Command output:")
-                            st.code(stdout)
-                            st.text("Error output:")
-                            st.code(stderr)
+                    if cubic_debug_mode:
+                        success, stdout, stderr = run_command(cmd, True)
                     else:
+                        # Run the command with our helper function
+                        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        success = result.returncode == 0
+                        if not success:
+                            st.error(f"Error executing cubic analysis: {result.stderr}")
+                    
+                    if success:
                         status_text.text("Calculations complete! Generating visualization...")
                         
                         # Check if the output file was created
                         if not os.path.exists(data_file):
                             st.error(f"Output file not created: {data_file}")
-                            if cubic_debug_mode:
-                                st.text("Command output:")
-                                st.code(stdout)
                             st.stop()
                         
                         # Load the results from the JSON file
@@ -884,22 +920,3 @@ with tab2:
                 st.info("👈 Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
         
         st.markdown('</div>', unsafe_allow_html=True)
-
-# Add footer with information
-with st.expander("About this Application"):
-    st.markdown("""
-    ## Matrix Analysis Dashboard
-    
-    This application provides tools for analyzing matrix properties and related cubic equations:
-    
-    ### Tab 1: Eigenvalue Analysis
-    Visualizes the relationship between empirical and theoretical eigenvalues of matrices as a function of β.
-    
-    ### Tab 2: Im(s) vs z Analysis
-    Explores the imaginary parts of the roots of the cubic equation:
-    ```
-    zas³ + [z(a+1)+a(1-y)]s² + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
-    ```
-    
-    The application uses C++ for high-performance numerical calculations and Python with Streamlit and Plotly for the interactive user interface and visualizations.
-    """)
