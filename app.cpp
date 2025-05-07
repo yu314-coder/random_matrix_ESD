@@ -13,7 +13,7 @@
 #include <fstream>
 
 // Function to compute the theoretical max value
-double compute_theoretical_max(double a, double y, double beta) {
+double compute_theoretical_max(double a, double y, double beta, int grid_points, double tolerance) {
     auto f = [a, y, beta](double k) -> double {
         return (y * beta * (a - 1) * k + (a * k + 1) * ((y - 1) * k - 1)) / 
                ((a * k + 1) * (k * k + k));
@@ -25,7 +25,7 @@ double compute_theoretical_max(double a, double y, double beta) {
     double best_val = f(best_k);
     
     // Initial grid search over a wide range
-    const int num_grid_points = 200;
+    const int num_grid_points = grid_points;
     for (int i = 0; i < num_grid_points; ++i) {
         double k = 0.01 + 100.0 * i / (num_grid_points - 1); // From 0.01 to 100
         double val = f(k);
@@ -39,7 +39,6 @@ double compute_theoretical_max(double a, double y, double beta) {
     double a_gs = std::max(0.01, best_k / 10.0);
     double b_gs = best_k * 10.0;
     const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
-    const double tolerance = 1e-10;
     
     double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
     double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
@@ -56,15 +55,15 @@ double compute_theoretical_max(double a, double y, double beta) {
         }
     }
     
-    // Multiply the result by y before returning
-    return f((a_gs + b_gs) / 2.0) * y;
+    // Return the value without multiplying by y (as per correction)
+    return f((a_gs + b_gs) / 2.0);
 }
 
 // Function to compute the theoretical min value
-double compute_theoretical_min(double a, double y, double beta) {
+double compute_theoretical_min(double a, double y, double beta, int grid_points, double tolerance) {
     auto f = [a, y, beta](double t) -> double {
         return (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / 
-               ((a * t + 1) * (t * t + t) * y);
+               ((a * t + 1) * (t * t + t));
     };
     
     // Use numerical optimization to find the minimum
@@ -73,7 +72,7 @@ double compute_theoretical_min(double a, double y, double beta) {
     double best_val = f(best_t);
     
     // Initial grid search over the range (-1/a, 0)
-    const int num_grid_points = 200;
+    const int num_grid_points = grid_points;
     for (int i = 1; i < num_grid_points; ++i) {
         // From slightly above -1/a to slightly below 0
         double t = -0.999/a + 0.998/a * i / (num_grid_points - 1);
@@ -90,7 +89,6 @@ double compute_theoretical_min(double a, double y, double beta) {
     double a_gs = -0.999/a; // Slightly above -1/a
     double b_gs = -0.001/a; // Slightly below 0
     const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
-    const double tolerance = 1e-10;
     
     double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
     double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
@@ -107,8 +105,8 @@ double compute_theoretical_min(double a, double y, double beta) {
         }
     }
     
-    // Multiply the result by y before returning
-    return f((a_gs + b_gs) / 2.0) * y;
+    // Return the value without multiplying by y (as per correction)
+    return f((a_gs + b_gs) / 2.0);
 }
 
 // Function to save data as JSON
@@ -177,8 +175,8 @@ void save_as_json(const std::string& filename,
 
 int main(int argc, char* argv[]) {
     // ─── Inputs from command line ───────────────────────────────────────────
-    if (argc != 7) {
-        std::cerr << "Usage: " << argv[0] << " <n> <p> <a> <y> <fineness> <output_file>" << std::endl;
+    if (argc != 9) {
+        std::cerr << "Usage: " << argv[0] << " <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
         return 1;
     }
     
@@ -187,11 +185,15 @@ int main(int argc, char* argv[]) {
     double a = std::stod(argv[3]);
     double y = std::stod(argv[4]);
     int fineness = std::stoi(argv[5]);
-    std::string output_file = argv[6];
+    int theory_grid_points = std::stoi(argv[6]);
+    double theory_tolerance = std::stod(argv[7]);
+    std::string output_file = argv[8];
     const double b = 1.0;
     
     std::cout << "Running with parameters: n = " << n << ", p = " << p 
-              << ", a = " << a << ", y = " << y << ", fineness = " << fineness << std::endl;
+              << ", a = " << a << ", y = " << y << ", fineness = " << fineness 
+              << ", theory_grid_points = " << theory_grid_points
+              << ", theory_tolerance = " << theory_tolerance << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
     // ─── Beta range parameters ────────────────────────────────────────
@@ -220,9 +222,9 @@ int main(int argc, char* argv[]) {
     for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
         double beta = beta_values[beta_idx];
         
-        // Compute theoretical values
-        theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta);
-        theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta);
+        // Compute theoretical values with customizable precision
+        theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
+        theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
         
         // ─── Build T_n matrix ──────────────────────────────────
         int k = static_cast<int>(std::floor(beta * p));
