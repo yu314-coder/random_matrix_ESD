@@ -3,7 +3,8 @@ import subprocess
 import os
 import json
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from PIL import Image
 import time
 import io
@@ -279,63 +280,150 @@ with right_column:
                     theoretical_max = np.array(data['theoretical_max'])
                     theoretical_min = np.array(data['theoretical_min'])
                     
-                    # Create the plot
-                    fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+                    # Create an interactive plot using Plotly
+                    fig = go.Figure()
                     
-                    # Set the background color
-                    fig.patch.set_facecolor('#f9f9f9')
-                    ax.set_facecolor('#f0f0f0')
+                    # Add traces for each line
+                    fig.add_trace(go.Scatter(
+                        x=beta_values, 
+                        y=max_eigenvalues,
+                        mode='lines+markers',
+                        name='Empirical Max Eigenvalue',
+                        line=dict(color='rgb(220, 60, 60)', width=3),
+                        marker=dict(
+                            symbol='circle',
+                            size=8,
+                            color='rgb(220, 60, 60)',
+                            line=dict(color='white', width=1)
+                        ),
+                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
+                    ))
                     
-                    # Plot the data with improved styling
-                    ax.plot(beta_values, max_eigenvalues, 'r-', linewidth=2.5, 
-                            label='Empirical Max Eigenvalue', marker='o', markevery=len(beta_values)//20, markersize=6)
-                    ax.plot(beta_values, min_eigenvalues, 'b-', linewidth=2.5, 
-                            label='Empirical Min Eigenvalue', marker='o', markevery=len(beta_values)//20, markersize=6)
-                    ax.plot(beta_values, theoretical_max, 'g-', linewidth=2.5, 
-                            label='Theoretical Max Function', marker='D', markevery=len(beta_values)//20, markersize=6)
-                    ax.plot(beta_values, theoretical_min, 'm-', linewidth=2.5, 
-                            label='Theoretical Min Function', marker='D', markevery=len(beta_values)//20, markersize=6)
+                    fig.add_trace(go.Scatter(
+                        x=beta_values, 
+                        y=min_eigenvalues,
+                        mode='lines+markers',
+                        name='Empirical Min Eigenvalue',
+                        line=dict(color='rgb(60, 60, 220)', width=3),
+                        marker=dict(
+                            symbol='circle',
+                            size=8,
+                            color='rgb(60, 60, 220)',
+                            line=dict(color='white', width=1)
+                        ),
+                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
+                    ))
                     
-                    # Add grid
-                    ax.grid(True, linestyle='--', alpha=0.7)
+                    fig.add_trace(go.Scatter(
+                        x=beta_values, 
+                        y=theoretical_max,
+                        mode='lines+markers',
+                        name='Theoretical Max Function',
+                        line=dict(color='rgb(30, 180, 30)', width=3),
+                        marker=dict(
+                            symbol='diamond',
+                            size=8,
+                            color='rgb(30, 180, 30)',
+                            line=dict(color='white', width=1)
+                        ),
+                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
+                    ))
                     
-                    # Set labels and title with better formatting
-                    ax.set_xlabel('β Parameter', fontsize=14, fontweight='bold')
-                    ax.set_ylabel('Eigenvalues', fontsize=14, fontweight='bold')
-                    ax.set_title(f'Eigenvalue Analysis: n={n}, p={p}, a={a}, y={y:.4f}', 
-                                 fontsize=16, fontweight='bold', pad=15)
+                    fig.add_trace(go.Scatter(
+                        x=beta_values, 
+                        y=theoretical_min,
+                        mode='lines+markers',
+                        name='Theoretical Min Function',
+                        line=dict(color='rgb(180, 30, 180)', width=3),
+                        marker=dict(
+                            symbol='diamond',
+                            size=8,
+                            color='rgb(180, 30, 180)',
+                            line=dict(color='white', width=1)
+                        ),
+                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
+                    ))
                     
-                    # Add legend with improved styling
-                    legend = ax.legend(loc='best', fontsize=12, framealpha=0.9, 
-                                      fancybox=True, shadow=True, borderpad=1)
+                    # Configure layout for better appearance
+                    fig.update_layout(
+                        title={
+                            'text': f'Eigenvalue Analysis: n={n}, p={p}, a={a}, y={y:.4f}',
+                            'font': {'size': 24, 'color': '#1E88E5'},
+                            'y': 0.95,
+                            'x': 0.5,
+                            'xanchor': 'center',
+                            'yanchor': 'top'
+                        },
+                        xaxis={
+                            'title': 'β Parameter',
+                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'tickfont': {'size': 14},
+                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                            'showgrid': True
+                        },
+                        yaxis={
+                            'title': 'Eigenvalues',
+                            'titlefont': {'size': 18, 'color': '#424242'},
+                            'tickfont': {'size': 14},
+                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                            'showgrid': True
+                        },
+                        plot_bgcolor='rgba(240, 240, 240, 0.8)',
+                        paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                        hovermode='closest',
+                        legend={
+                            'font': {'size': 14},
+                            'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                            'bordercolor': 'rgba(200, 200, 200, 0.5)',
+                            'borderwidth': 1
+                        },
+                        margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
+                        height=600,
+                        annotations=[
+                            {
+                                'text': f"Max Function: max{{k ∈ (0,∞)}} [yβ(a-1)k + (ak+1)((y-1)k-1)]/[(ak+1)(k²+k)]",
+                                'xref': 'paper', 'yref': 'paper',
+                                'x': 0.02, 'y': 0.02,
+                                'showarrow': False,
+                                'font': {'size': 12, 'color': 'rgb(30, 180, 30)'},
+                                'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                                'bordercolor': 'rgb(30, 180, 30)',
+                                'borderwidth': 1,
+                                'borderpad': 4
+                            },
+                            {
+                                'text': f"Min Function: min{{t ∈ (-1/a,0)}} [yβ(a-1)t + (at+1)((y-1)t-1)]/[(at+1)(t²+t)]",
+                                'xref': 'paper', 'yref': 'paper',
+                                'x': 0.55, 'y': 0.02,
+                                'showarrow': False,
+                                'font': {'size': 12, 'color': 'rgb(180, 30, 180)'},
+                                'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                                'bordercolor': 'rgb(180, 30, 180)',
+                                'borderwidth': 1,
+                                'borderpad': 4
+                            }
+                        ]
+                    )
                     
-                    # Add formulas as text with better styling
-                    formula_text1 = r"Max Function: $\max_{k \in (0,\infty)} \frac{y\beta(a-1)k + (ak+1)((y-1)k-1)}{(ak+1)(k^2+k)}$"
-                    formula_text2 = r"Min Function: $\min_{t \in (-1/a,0)} \frac{y\beta(a-1)t + (at+1)((y-1)t-1)}{(at+1)(t^2+t)}$"
-                    
-                    plt.figtext(0.02, 0.02, formula_text1, fontsize=10, color='green', 
-                               bbox=dict(facecolor='white', alpha=0.8, edgecolor='green', boxstyle='round,pad=0.5'))
-                    plt.figtext(0.55, 0.02, formula_text2, fontsize=10, color='purple',
-                               bbox=dict(facecolor='white', alpha=0.8, edgecolor='purple', boxstyle='round,pad=0.5'))
-                    
-                    # Adjust layout
-                    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-                    
-                    # Save the plot to a buffer
-                    buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=100)
-                    buf.seek(0)
-                    
-                    # Save to file
-                    output_file = os.path.join(output_dir, "eigenvalue_analysis.png")
-                    plt.savefig(output_file, format='png', dpi=100)
-                    plt.close()
+                    # Add custom modebar buttons
+                    fig.update_layout(
+                        modebar_add=[
+                            'drawline', 'drawopenpath', 'drawclosedpath',
+                            'drawcircle', 'drawrect', 'eraseshape'
+                        ],
+                        modebar_remove=['lasso2d', 'select2d'],
+                        dragmode='zoom'
+                    )
                     
                     # Clear progress container
                     progress_container.empty()
                     
-                    # Display the image in Streamlit (with fixed deprecated parameter)
-                    st.image(buf, use_container_width=True)
+                    # Display the interactive plot in Streamlit
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Generate static image for download
+                    output_file = os.path.join(output_dir, "eigenvalue_analysis.png")
+                    fig.write_image(output_file, scale=2)
                     
                     # Provide download button
                     col1, col2, col3 = st.columns([1, 2, 1])
@@ -417,12 +505,127 @@ with right_column:
                 st.error(f"An error occurred: {str(e)}")
     
     else:
-        # Check for existing results
-        example_file = os.path.join(output_dir, "eigenvalue_analysis.png")
-        if os.path.exists(example_file):
-            # Show the most recent plot by default
-            st.image(example_file, use_container_width=True)
-            st.info("This is the most recent analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
+        # Try to load existing data if available
+        data_file = os.path.join(output_dir, "eigenvalue_data.json")
+        if os.path.exists(data_file):
+            try:
+                with open(data_file, 'r') as f:
+                    data = json.load(f)
+                
+                # Extract data
+                beta_values = np.array(data['beta_values'])
+                max_eigenvalues = np.array(data['max_eigenvalues'])
+                min_eigenvalues = np.array(data['min_eigenvalues'])
+                theoretical_max = np.array(data['theoretical_max'])
+                theoretical_min = np.array(data['theoretical_min'])
+                
+                # Create an interactive plot using Plotly
+                fig = go.Figure()
+                
+                # Add traces for each line
+                fig.add_trace(go.Scatter(
+                    x=beta_values, 
+                    y=max_eigenvalues,
+                    mode='lines+markers',
+                    name='Empirical Max Eigenvalue',
+                    line=dict(color='rgb(220, 60, 60)', width=3),
+                    marker=dict(
+                        symbol='circle',
+                        size=8,
+                        color='rgb(220, 60, 60)',
+                        line=dict(color='white', width=1)
+                    ),
+                    hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=beta_values, 
+                    y=min_eigenvalues,
+                    mode='lines+markers',
+                    name='Empirical Min Eigenvalue',
+                    line=dict(color='rgb(60, 60, 220)', width=3),
+                    marker=dict(
+                        symbol='circle',
+                        size=8,
+                        color='rgb(60, 60, 220)',
+                        line=dict(color='white', width=1)
+                    ),
+                    hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=beta_values, 
+                    y=theoretical_max,
+                    mode='lines+markers',
+                    name='Theoretical Max Function',
+                    line=dict(color='rgb(30, 180, 30)', width=3),
+                    marker=dict(
+                        symbol='diamond',
+                        size=8,
+                        color='rgb(30, 180, 30)',
+                        line=dict(color='white', width=1)
+                    ),
+                    hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=beta_values, 
+                    y=theoretical_min,
+                    mode='lines+markers',
+                    name='Theoretical Min Function',
+                    line=dict(color='rgb(180, 30, 180)', width=3),
+                    marker=dict(
+                        symbol='diamond',
+                        size=8,
+                        color='rgb(180, 30, 180)',
+                        line=dict(color='white', width=1)
+                    ),
+                    hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
+                ))
+                
+                # Configure layout for better appearance
+                fig.update_layout(
+                    title={
+                        'text': f'Eigenvalue Analysis (Previous Result)',
+                        'font': {'size': 24, 'color': '#1E88E5'},
+                        'y': 0.95,
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'yanchor': 'top'
+                    },
+                    xaxis={
+                        'title': 'β Parameter',
+                        'titlefont': {'size': 18, 'color': '#424242'},
+                        'tickfont': {'size': 14},
+                        'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                        'showgrid': True
+                    },
+                    yaxis={
+                        'title': 'Eigenvalues',
+                        'titlefont': {'size': 18, 'color': '#424242'},
+                        'tickfont': {'size': 14},
+                        'gridcolor': 'rgba(220, 220, 220, 0.5)',
+                        'showgrid': True
+                    },
+                    plot_bgcolor='rgba(240, 240, 240, 0.8)',
+                    paper_bgcolor='rgba(249, 249, 249, 0.8)',
+                    hovermode='closest',
+                    legend={
+                        'font': {'size': 14},
+                        'bgcolor': 'rgba(255, 255, 255, 0.9)',
+                        'bordercolor': 'rgba(200, 200, 200, 0.5)',
+                        'borderwidth': 1
+                    },
+                    margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
+                    height=600
+                )
+                
+                # Display the interactive plot in Streamlit
+                st.plotly_chart(fig, use_container_width=True)
+                st.info("This is the previous analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
+                
+            except Exception as e:
+                st.info("👈 Set parameters and click 'Generate Analysis' to create a visualization.")
         else:
             # Show placeholder
             st.info("👈 Set parameters and click 'Generate Analysis' to create a visualization.")
