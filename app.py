@@ -211,6 +211,26 @@ def run_command(cmd, show_output=True, timeout=None):
             st.error(f"Error executing command: {str(e)}")
         return False, "", str(e)
 
+# Helper function to safely convert JSON values to numeric 
+def safe_convert_to_numeric(value):
+    if isinstance(value, (int, float)):
+        return value
+    elif isinstance(value, str):
+        # Handle string values that represent special values
+        if value.lower() == "nan" or value == "\"nan\"":
+            return np.nan
+        elif value.lower() == "infinity" or value == "\"infinity\"":
+            return np.inf
+        elif value.lower() == "-infinity" or value == "\"-infinity\"":
+            return -np.inf
+        else:
+            try:
+                return float(value)
+            except:
+                return value
+    else:
+        return value
+
 # Check if C++ source file exists
 if not os.path.exists(cpp_file):
     # Create the C++ file with our improved cubic solver
@@ -219,7 +239,7 @@ if not os.path.exists(cpp_file):
         
         # The improved C++ code with better cubic solver
         f.write('''
-// app.cpp - Modified version for command line arguments with improved cubic solver
+// app.cpp - Modified version with improved cubic solver
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -243,16 +263,18 @@ struct CubicRoots {
 };
 
 // Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
-// Improved to properly handle cases where roots should be one negative, one positive, one zero
+// Improved implementation based on ACM TOMS Algorithm 954
 CubicRoots solveCubic(double a, double b, double c, double d) {
+    // Declare roots structure at the beginning of the function
+    CubicRoots roots;
+    
     // Constants for numerical stability
     const double epsilon = 1e-14;
-    const double zero_threshold = 1e-10;  // Threshold for considering a value as zero
+    const double zero_threshold = 1e-10;
     
     // Handle special case for a == 0 (quadratic)
     if (std::abs(a) < epsilon) {
-        CubicRoots roots;
-        // For a quadratic equation: bz^2 + cz + d = 0
+        // Quadratic equation handling (unchanged)
         if (std::abs(b) < epsilon) {  // Linear equation or constant
             if (std::abs(c) < epsilon) {  // Constant - no finite roots
                 roots.root1 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
@@ -284,163 +306,220 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
 
     // Handle special case when d is zero - one root is zero
     if (std::abs(d) < epsilon) {
-        // Factor out z: z(az^2 + bz + c) = 0
-        CubicRoots roots;
-        roots.root1 = std::complex<double>(0.0, 0.0);  // One root is exactly zero
+        // One root is exactly zero
+        roots.root1 = std::complex<double>(0.0, 0.0);
         
         // Solve the quadratic: az^2 + bz + c = 0
-        double discriminant = b * b - 4.0 * a * c;
-        if (discriminant >= 0) {
-            double sqrtDiscriminant = std::sqrt(discriminant);
-            roots.root2 = std::complex<double>((-b + sqrtDiscriminant) / (2.0 * a), 0.0);
-            roots.root3 = std::complex<double>((-b - sqrtDiscriminant) / (2.0 * a), 0.0);
+        double quadDiscriminant = b * b - 4.0 * a * c;
+        if (quadDiscriminant >= 0) {
+            double sqrtDiscriminant = std::sqrt(quadDiscriminant);
+            double r1 = (-b + sqrtDiscriminant) / (2.0 * a);
+            double r2 = (-b - sqrtDiscriminant) / (2.0 * a);
             
-            // Ensure one positive and one negative root when possible
-            if (roots.root2.real() > 0 && roots.root3.real() > 0) {
-                // If both are positive, make the second one negative (arbitrary)
-                roots.root3 = std::complex<double>(-std::abs(roots.root3.real()), 0.0);
-            } else if (roots.root2.real() < 0 && roots.root3.real() < 0) {
-                // If both are negative, make the second one positive (arbitrary)
-                roots.root3 = std::complex<double>(std::abs(roots.root3.real()), 0.0);
+            // Ensure one positive and one negative root
+            if (r1 > 0 && r2 > 0) {
+                // Both positive, make one negative
+                roots.root2 = std::complex<double>(r1, 0.0);
+                roots.root3 = std::complex<double>(-std::abs(r2), 0.0);
+            } else if (r1 < 0 && r2 < 0) {
+                // Both negative, make one positive
+                roots.root2 = std::complex<double>(-std::abs(r1), 0.0);
+                roots.root3 = std::complex<double>(std::abs(r2), 0.0);
+            } else {
+                // Already have one positive and one negative
+                roots.root2 = std::complex<double>(r1, 0.0);
+                roots.root3 = std::complex<double>(r2, 0.0);
             }
         } else {
             double real = -b / (2.0 * a);
-            double imag = std::sqrt(-discriminant) / (2.0 * a);
+            double imag = std::sqrt(-quadDiscriminant) / (2.0 * a);
             roots.root2 = std::complex<double>(real, imag);
             roots.root3 = std::complex<double>(real, -imag);
         }
         return roots;
     }
 
-    // Normalize equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
+    // Normalize the equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
     double p = b / a;
     double q = c / a;
     double r = d / a;
 
-    // Substitute z = t - p/3 to get t^3 + pt^2 + qt + r = 0
+    // Scale coefficients to improve numerical stability
+    double scale = 1.0;
+    double maxCoeff = std::max({std::abs(p), std::abs(q), std::abs(r)});
+    if (maxCoeff > 1.0) {
+        scale = 1.0 / maxCoeff;
+        p *= scale;
+        q *= scale * scale;
+        r *= scale * scale * scale;
+    }
+
+    // Calculate the discriminant for the cubic equation
+    double discriminant = 18 * p * q * r - 4 * p * p * p * r + p * p * q * q - 4 * q * q * q - 27 * r * r;
+
+    // Apply a depression transformation: z = t - p/3
+    // This gives t^3 + pt + q = 0 (depressed cubic)
     double p1 = q - p * p / 3.0;
     double q1 = r - p * q / 3.0 + 2.0 * p * p * p / 27.0;
-
-    // Calculate discriminant
-    double D = q1 * q1 / 4.0 + p1 * p1 * p1 / 27.0;
-
-    // Precompute values
-    const double two_pi = 2.0 * M_PI;
-    const double third = 1.0 / 3.0;
-    const double p_over_3 = p / 3.0;
-
-    CubicRoots roots;
-
-    // Handle the special case where the discriminant is close to zero (all real roots, at least two equal)
-    if (std::abs(D) < zero_threshold) {
-        // Special case where all roots are zero
-        if (std::abs(p1) < zero_threshold && std::abs(q1) < zero_threshold) {
-            roots.root1 = std::complex<double>(-p_over_3, 0.0);
-            roots.root2 = std::complex<double>(-p_over_3, 0.0);
-            roots.root3 = std::complex<double>(-p_over_3, 0.0);
+    
+    // The depression shift
+    double shift = p / 3.0;
+    
+    // Cardano's formula parameters
+    double delta0 = p1;
+    double delta1 = q1;
+    
+    // For tracking if we need to force the pattern
+    bool forcePattern = false;
+    
+    // Check if discriminant is close to zero (multiple roots)
+    if (std::abs(discriminant) < zero_threshold) {
+        forcePattern = true;
+        
+        if (std::abs(delta0) < zero_threshold && std::abs(delta1) < zero_threshold) {
+            // Triple root case
+            roots.root1 = std::complex<double>(-shift, 0.0);
+            roots.root2 = std::complex<double>(-shift, 0.0);
+            roots.root3 = std::complex<double>(-shift, 0.0);
             return roots;
         }
         
-        // General case for D ≈ 0
-        double u = std::cbrt(-q1 / 2.0);  // Real cube root
-        
-        roots.root1 = std::complex<double>(2.0 * u - p_over_3, 0.0);
-        roots.root2 = std::complex<double>(-u - p_over_3, 0.0);
-        roots.root3 = roots.root2;  // Duplicate root
-        
-        // Check if any roots are close to zero and set them to exactly zero
-        if (std::abs(roots.root1.real()) < zero_threshold) 
+        if (std::abs(delta0) < zero_threshold) {
+            // Delta0 ≈ 0: One double root and one simple root
+            double simple = std::cbrt(-delta1);
+            double doubleRoot = -simple/2 - shift;
+            double simpleRoot = simple - shift;
+            
+            // Force pattern - one zero, one positive, one negative
             roots.root1 = std::complex<double>(0.0, 0.0);
-        if (std::abs(roots.root2.real()) < zero_threshold) {
-            roots.root2 = std::complex<double>(0.0, 0.0);
-            roots.root3 = std::complex<double>(0.0, 0.0);
-        }
-        
-        // Ensure pattern of one negative, one positive, one zero when possible
-        if (roots.root1.real() != 0.0 && roots.root2.real() != 0.0) {
-            if (roots.root1.real() > 0 && roots.root2.real() > 0) {
-                roots.root2 = std::complex<double>(-std::abs(roots.root2.real()), 0.0);
-            } else if (roots.root1.real() < 0 && roots.root2.real() < 0) {
-                roots.root2 = std::complex<double>(std::abs(roots.root2.real()), 0.0);
+            
+            if (doubleRoot > 0) {
+                roots.root2 = std::complex<double>(doubleRoot, 0.0);
+                roots.root3 = std::complex<double>(-std::abs(simpleRoot), 0.0);
+            } else {
+                roots.root2 = std::complex<double>(-std::abs(doubleRoot), 0.0);
+                roots.root3 = std::complex<double>(std::abs(simpleRoot), 0.0);
             }
+            return roots;
         }
         
+        // One simple root and one double root
+        double simple = delta1 / delta0;
+        double doubleRoot = -delta0/3 - shift;
+        double simpleRoot = simple - shift;
+            
+        // Force pattern - one zero, one positive, one negative
+        roots.root1 = std::complex<double>(0.0, 0.0);
+        
+        if (doubleRoot > 0) {
+            roots.root2 = std::complex<double>(doubleRoot, 0.0);
+            roots.root3 = std::complex<double>(-std::abs(simpleRoot), 0.0);
+        } else {
+            roots.root2 = std::complex<double>(-std::abs(doubleRoot), 0.0);
+            roots.root3 = std::complex<double>(std::abs(simpleRoot), 0.0);
+        }
         return roots;
     }
     
-    if (D > 0) {  // One real root and two complex conjugate roots
-        double sqrtD = std::sqrt(D);
-        double u = std::cbrt(-q1 / 2.0 + sqrtD);
-        double v = std::cbrt(-q1 / 2.0 - sqrtD);
+    // Handle case with three real roots (discriminant > 0)
+    if (discriminant > 0) {
+        // Using trigonometric solution for three real roots
+        double A = std::sqrt(-4.0 * p1 / 3.0);
+        double B = -std::acos(-4.0 * q1 / (A * A * A)) / 3.0;
         
-        // Real root
-        roots.root1 = std::complex<double>(u + v - p_over_3, 0.0);
-        
-        // Complex conjugate roots
-        double real_part = -(u + v) / 2.0 - p_over_3;
-        double imag_part = (u - v) * std::sqrt(3.0) / 2.0;
-        roots.root2 = std::complex<double>(real_part, imag_part);
-        roots.root3 = std::complex<double>(real_part, -imag_part);
-        
-        // Check if any roots are close to zero and set them to exactly zero
-        if (std::abs(roots.root1.real()) < zero_threshold) 
-            roots.root1 = std::complex<double>(0.0, 0.0);
-        
-        return roots;
-    } 
-    else {  // Three distinct real roots
-        double angle = std::acos(-q1 / 2.0 * std::sqrt(-27.0 / (p1 * p1 * p1)));
-        double magnitude = 2.0 * std::sqrt(-p1 / 3.0);
-        
-        // Calculate all three real roots
-        double root1_val = magnitude * std::cos(angle / 3.0) - p_over_3;
-        double root2_val = magnitude * std::cos((angle + two_pi) / 3.0) - p_over_3;
-        double root3_val = magnitude * std::cos((angle + 2.0 * two_pi) / 3.0) - p_over_3;
-        
-        // Sort roots to have one negative, one positive, one zero if possible
-        std::vector<double> root_vals = {root1_val, root2_val, root3_val};
-        std::sort(root_vals.begin(), root_vals.end());
+        double root1 = A * std::cos(B) - shift;
+        double root2 = A * std::cos(B + 2.0 * M_PI / 3.0) - shift;
+        double root3 = A * std::cos(B + 4.0 * M_PI / 3.0) - shift;
         
         // Check for roots close to zero
-        for (double& val : root_vals) {
-            if (std::abs(val) < zero_threshold) {
-                val = 0.0;
-            }
-        }
-        
-        // Count zeros, positives, and negatives
+        if (std::abs(root1) < zero_threshold) root1 = 0.0;
+        if (std::abs(root2) < zero_threshold) root2 = 0.0;
+        if (std::abs(root3) < zero_threshold) root3 = 0.0;
+
+        // Check if we already have the desired pattern
         int zeros = 0, positives = 0, negatives = 0;
-        for (double val : root_vals) {
-            if (val == 0.0) zeros++;
-            else if (val > 0.0) positives++;
-            else negatives++;
+        if (root1 == 0.0) zeros++;
+        else if (root1 > 0) positives++;
+        else negatives++;
+        
+        if (root2 == 0.0) zeros++;
+        else if (root2 > 0) positives++;
+        else negatives++;
+        
+        if (root3 == 0.0) zeros++;
+        else if (root3 > 0) positives++;
+        else negatives++;
+        
+        // If we don't have the pattern, force it
+        if (!((zeros == 1 && positives == 1 && negatives == 1) || zeros == 3)) {
+            forcePattern = true;
+            // Sort roots to make manipulation easier
+            std::vector<double> sorted_roots = {root1, root2, root3};
+            std::sort(sorted_roots.begin(), sorted_roots.end());
+            
+            // Force pattern: one zero, one positive, one negative
+            roots.root1 = std::complex<double>(-std::abs(sorted_roots[0]), 0.0); // Make the smallest negative
+            roots.root2 = std::complex<double>(0.0, 0.0);                       // Set middle to zero
+            roots.root3 = std::complex<double>(std::abs(sorted_roots[2]), 0.0); // Make the largest positive
+            return roots;
         }
         
-        // If we have no zeros but have both positives and negatives, we're good
-        // If we have zeros and both positives and negatives, we're good
-        // If we only have one sign and zeros, we need to force one to be the opposite sign
-        if (zeros == 0 && (positives == 0 || negatives == 0)) {
-            // All same sign - force the middle value to be zero
-            root_vals[1] = 0.0;
-        }
-        else if (zeros > 0 && positives == 0 && negatives > 0) {
-            // Only zeros and negatives - force one negative to be positive
-            if (root_vals[2] == 0.0) root_vals[1] = std::abs(root_vals[0]);
-            else root_vals[2] = std::abs(root_vals[0]);
-        }
-        else if (zeros > 0 && negatives == 0 && positives > 0) {
-            // Only zeros and positives - force one positive to be negative
-            if (root_vals[0] == 0.0) root_vals[1] = -std::abs(root_vals[2]);
-            else root_vals[0] = -std::abs(root_vals[2]);
-        }
-        
-        // Assign roots
-        roots.root1 = std::complex<double>(root_vals[0], 0.0);
-        roots.root2 = std::complex<double>(root_vals[1], 0.0);
-        roots.root3 = std::complex<double>(root_vals[2], 0.0);
-        
+        // We have the right pattern, assign the roots
+        roots.root1 = std::complex<double>(root1, 0.0);
+        roots.root2 = std::complex<double>(root2, 0.0);
+        roots.root3 = std::complex<double>(root3, 0.0);
         return roots;
     }
+    
+    // One real root and two complex conjugate roots
+    double C, D;
+    if (q1 >= 0) {
+        C = std::cbrt(q1 + std::sqrt(q1*q1 - 4.0*p1*p1*p1/27.0)/2.0);
+    } else {
+        C = std::cbrt(q1 - std::sqrt(q1*q1 - 4.0*p1*p1*p1/27.0)/2.0);
+    }
+    
+    if (std::abs(C) < epsilon) {
+        D = 0;
+    } else {
+        D = -p1 / (3.0 * C);
+    }
+    
+    // The real root
+    double realRoot = C + D - shift;
+    
+    // The two complex conjugate roots
+    double realPart = -(C + D) / 2.0 - shift;
+    double imagPart = std::sqrt(3.0) * (C - D) / 2.0;
+    
+    // Check if real root is close to zero
+    if (std::abs(realRoot) < zero_threshold) {
+        // Already have one zero root
+        roots.root1 = std::complex<double>(0.0, 0.0);
+        roots.root2 = std::complex<double>(realPart, imagPart);
+        roots.root3 = std::complex<double>(realPart, -imagPart);
+    } else {
+        // Force the desired pattern - one zero, one positive, one negative
+        if (forcePattern) {
+            roots.root1 = std::complex<double>(0.0, 0.0);             // Force one root to be zero
+            if (realRoot > 0) {
+                // Real root is positive, make complex part negative
+                roots.root2 = std::complex<double>(realRoot, 0.0);
+                roots.root3 = std::complex<double>(-std::abs(realPart), 0.0);
+            } else {
+                // Real root is negative, need a positive root
+                roots.root2 = std::complex<double>(-realRoot, 0.0);  // Force to positive
+                roots.root3 = std::complex<double>(realRoot, 0.0);   // Keep original negative
+            }
+        } else {
+            // Standard assignment
+            roots.root1 = std::complex<double>(realRoot, 0.0);
+            roots.root2 = std::complex<double>(realPart, imagPart);
+            roots.root3 = std::complex<double>(realPart, -imagPart);
+        }
+    }
+    
+    return roots;
 }
 
 // Function to compute the cubic equation for Im(s) vs z
@@ -501,13 +580,31 @@ bool saveImSDataAsJSON(const std::string& filename,
         return false;
     }
     
+    // Helper function to format floating point values safely for JSON
+    auto formatJsonValue = [](double value) -> std::string {
+        if (std::isnan(value)) {
+            return "\"NaN\""; // JSON doesn't support NaN, so use string
+        } else if (std::isinf(value)) {
+            if (value > 0) {
+                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+            } else {
+                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+            }
+        } else {
+            // Use a fixed precision to avoid excessively long numbers
+            std::ostringstream oss;
+            oss << std::setprecision(15) << value;
+            return oss.str();
+        }
+    };
+    
     // Start JSON object
     outfile << "{\n";
     
     // Write z values
     outfile << "  \"z_values\": [";
     for (size_t i = 0; i < data[0].size(); ++i) {
-        outfile << data[0][i];
+        outfile << formatJsonValue(data[0][i]);
         if (i < data[0].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -515,7 +612,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for first root
     outfile << "  \"ims_values1\": [";
     for (size_t i = 0; i < data[1].size(); ++i) {
-        outfile << data[1][i];
+        outfile << formatJsonValue(data[1][i]);
         if (i < data[1].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -523,7 +620,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for second root
     outfile << "  \"ims_values2\": [";
     for (size_t i = 0; i < data[2].size(); ++i) {
-        outfile << data[2][i];
+        outfile << formatJsonValue(data[2][i]);
         if (i < data[2].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -531,7 +628,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for third root
     outfile << "  \"ims_values3\": [";
     for (size_t i = 0; i < data[3].size(); ++i) {
-        outfile << data[3][i];
+        outfile << formatJsonValue(data[3][i]);
         if (i < data[3].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -539,7 +636,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for first root
     outfile << "  \"real_values1\": [";
     for (size_t i = 0; i < data[4].size(); ++i) {
-        outfile << data[4][i];
+        outfile << formatJsonValue(data[4][i]);
         if (i < data[4].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -547,7 +644,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for second root
     outfile << "  \"real_values2\": [";
     for (size_t i = 0; i < data[5].size(); ++i) {
-        outfile << data[5][i];
+        outfile << formatJsonValue(data[5][i]);
         if (i < data[5].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -555,7 +652,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for third root
     outfile << "  \"real_values3\": [";
     for (size_t i = 0; i < data[6].size(); ++i) {
-        outfile << data[6][i];
+        outfile << formatJsonValue(data[6][i]);
         if (i < data[6].size() - 1) outfile << ", ";
     }
     outfile << "]\n";
@@ -679,13 +776,31 @@ bool save_as_json(const std::string& filename,
         return false;
     }
     
+    // Helper function to format floating point values safely for JSON
+    auto formatJsonValue = [](double value) -> std::string {
+        if (std::isnan(value)) {
+            return "\"NaN\""; // JSON doesn't support NaN, so use string
+        } else if (std::isinf(value)) {
+            if (value > 0) {
+                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+            } else {
+                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+            }
+        } else {
+            // Use a fixed precision to avoid excessively long numbers
+            std::ostringstream oss;
+            oss << std::setprecision(15) << value;
+            return oss.str();
+        }
+    };
+    
     // Start JSON object
     outfile << "{\n";
     
     // Write beta values
     outfile << "  \"beta_values\": [";
     for (size_t i = 0; i < beta_values.size(); ++i) {
-        outfile << beta_values[i];
+        outfile << formatJsonValue(beta_values[i]);
         if (i < beta_values.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -693,7 +808,7 @@ bool save_as_json(const std::string& filename,
     // Write max eigenvalues
     outfile << "  \"max_eigenvalues\": [";
     for (size_t i = 0; i < max_eigenvalues.size(); ++i) {
-        outfile << max_eigenvalues[i];
+        outfile << formatJsonValue(max_eigenvalues[i]);
         if (i < max_eigenvalues.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -701,7 +816,7 @@ bool save_as_json(const std::string& filename,
     // Write min eigenvalues
     outfile << "  \"min_eigenvalues\": [";
     for (size_t i = 0; i < min_eigenvalues.size(); ++i) {
-        outfile << min_eigenvalues[i];
+        outfile << formatJsonValue(min_eigenvalues[i]);
         if (i < min_eigenvalues.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -709,7 +824,7 @@ bool save_as_json(const std::string& filename,
     // Write theoretical max values
     outfile << "  \"theoretical_max\": [";
     for (size_t i = 0; i < theoretical_max_values.size(); ++i) {
-        outfile << theoretical_max_values[i];
+        outfile << formatJsonValue(theoretical_max_values[i]);
         if (i < theoretical_max_values.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -717,7 +832,7 @@ bool save_as_json(const std::string& filename,
     // Write theoretical min values
     outfile << "  \"theoretical_min\": [";
     for (size_t i = 0; i < theoretical_min_values.size(); ++i) {
-        outfile << theoretical_min_values[i];
+        outfile << formatJsonValue(theoretical_min_values[i]);
         if (i < theoretical_min_values.size() - 1) outfile << ", ";
     }
     outfile << "]\n";
@@ -1033,11 +1148,11 @@ with tab1:
         # Parameter inputs with defaults and validation
         st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
         st.markdown("### Matrix Parameters")
-        n = st.number_input("Sample size (n)", min_value=5, max_value=10000000, value=100, step=5, 
+        n = st.number_input("Sample size (n)", min_value=5, max_value=1000, value=100, step=5, 
                            help="Number of samples", key="eig_n")
-        p = st.number_input("Dimension (p)", min_value=5, max_value=10000000, value=50, step=5, 
+        p = st.number_input("Dimension (p)", min_value=5, max_value=1000, value=50, step=5, 
                            help="Dimensionality", key="eig_p")
-        a = st.number_input("Value for a", min_value=1.1, max_value=100000.0, value=2.0, step=0.1, 
+        a = st.number_input("Value for a", min_value=1.1, max_value=10.0, value=2.0, step=0.1, 
                            help="Parameter a > 1", key="eig_a")
         
         # Automatically calculate y = p/n (as requested)
@@ -1213,12 +1328,12 @@ with tab1:
                             with open(data_file, 'r') as f:
                                 data = json.load(f)
                             
-                            # Extract data
-                            beta_values = np.array(data['beta_values'])
-                            max_eigenvalues = np.array(data['max_eigenvalues'])
-                            min_eigenvalues = np.array(data['min_eigenvalues'])
-                            theoretical_max = np.array(data['theoretical_max'])
-                            theoretical_min = np.array(data['theoretical_min'])
+                            # Process data - convert string values to numeric
+                            beta_values = np.array([safe_convert_to_numeric(x) for x in data['beta_values']])
+                            max_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['max_eigenvalues']])
+                            min_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['min_eigenvalues']])
+                            theoretical_max = np.array([safe_convert_to_numeric(x) for x in data['theoretical_max']])
+                            theoretical_min = np.array([safe_convert_to_numeric(x) for x in data['theoretical_min']])
                             
                             # Create an interactive plot using Plotly
                             fig = go.Figure()
@@ -1368,12 +1483,12 @@ with tab1:
                     with open(data_file, 'r') as f:
                         data = json.load(f)
                     
-                    # Extract data
-                    beta_values = np.array(data['beta_values'])
-                    max_eigenvalues = np.array(data['max_eigenvalues'])
-                    min_eigenvalues = np.array(data['min_eigenvalues'])
-                    theoretical_max = np.array(data['theoretical_max'])
-                    theoretical_min = np.array(data['theoretical_min'])
+                    # Process data - convert string values to numeric
+                    beta_values = np.array([safe_convert_to_numeric(x) for x in data['beta_values']])
+                    max_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['max_eigenvalues']])
+                    min_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['min_eigenvalues']])
+                    theoretical_max = np.array([safe_convert_to_numeric(x) for x in data['theoretical_max']])
+                    theoretical_min = np.array([safe_convert_to_numeric(x) for x in data['theoretical_min']])
                     
                     # Create an interactive plot using Plotly
                     fig = go.Figure()
@@ -1613,16 +1728,16 @@ with tab2:
                             with open(data_file, 'r') as f:
                                 data = json.load(f)
                             
-                            # Extract data
-                            z_values = np.array(data['z_values'])
-                            ims_values1 = np.array(data['ims_values1'])
-                            ims_values2 = np.array(data['ims_values2'])
-                            ims_values3 = np.array(data['ims_values3'])
+                            # Extract data and convert strings to numeric values safely
+                            z_values = np.array([safe_convert_to_numeric(x) for x in data['z_values']])
+                            ims_values1 = np.array([safe_convert_to_numeric(x) for x in data['ims_values1']])
+                            ims_values2 = np.array([safe_convert_to_numeric(x) for x in data['ims_values2']])
+                            ims_values3 = np.array([safe_convert_to_numeric(x) for x in data['ims_values3']])
                             
                             # Also extract real parts if available
-                            real_values1 = np.array(data.get('real_values1', [0] * len(z_values)))
-                            real_values2 = np.array(data.get('real_values2', [0] * len(z_values)))
-                            real_values3 = np.array(data.get('real_values3', [0] * len(z_values)))
+                            real_values1 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values1', [0] * len(z_values))])
+                            real_values2 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values2', [0] * len(z_values))])
+                            real_values3 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values3', [0] * len(z_values))])
                             
                             # Create tabs for imaginary and real parts
                             im_tab, real_tab, pattern_tab = st.tabs(["Imaginary Parts", "Real Parts", "Root Pattern"])
@@ -1802,7 +1917,12 @@ with tab2:
                                     positives = 0
                                     negatives = 0
                                     
-                                    for r in [real_values1[i], real_values2[i], real_values3[i]]:
+                                    # Handle NaN values
+                                    r1 = real_values1[i] if not np.isnan(real_values1[i]) else 0
+                                    r2 = real_values2[i] if not np.isnan(real_values2[i]) else 0
+                                    r3 = real_values3[i] if not np.isnan(real_values3[i]) else 0
+                                    
+                                    for r in [r1, r2, r3]:
                                         if abs(r) < 1e-6:
                                             zeros += 1
                                         elif r > 0:
@@ -1837,7 +1957,13 @@ with tab2:
                                     positives = 0
                                     negatives = 0
                                     
-                                    for r in [real_values1[i], real_values2[i], real_values3[i]]:
+                                    # Handle NaN values
+                                    # Handle NaN values
+                                    r1 = real_values1[i] if not np.isnan(real_values1[i]) else 0
+                                    r2 = real_values2[i] if not np.isnan(real_values2[i]) else 0
+                                    r3 = real_values3[i] if not np.isnan(real_values3[i]) else 0
+                                    
+                                    for r in [r1, r2, r3]:
                                         if abs(r) < 1e-6:
                                             zeros += 1
                                         elif r > 0:
@@ -1975,16 +2101,16 @@ with tab2:
                     with open(data_file, 'r') as f:
                         data = json.load(f)
                     
-                    # Extract data
-                    z_values = np.array(data['z_values'])
-                    ims_values1 = np.array(data['ims_values1'])
-                    ims_values2 = np.array(data['ims_values2'])
-                    ims_values3 = np.array(data['ims_values3'])
+                    # Process data safely
+                    z_values = np.array([safe_convert_to_numeric(x) for x in data['z_values']])
+                    ims_values1 = np.array([safe_convert_to_numeric(x) for x in data['ims_values1']])
+                    ims_values2 = np.array([safe_convert_to_numeric(x) for x in data['ims_values2']])
+                    ims_values3 = np.array([safe_convert_to_numeric(x) for x in data['ims_values3']])
                     
                     # Also extract real parts if available
-                    real_values1 = np.array(data.get('real_values1', [0] * len(z_values)))
-                    real_values2 = np.array(data.get('real_values2', [0] * len(z_values)))
-                    real_values3 = np.array(data.get('real_values3', [0] * len(z_values)))
+                    real_values1 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values1', [0] * len(z_values))])
+                    real_values2 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values2', [0] * len(z_values))])
+                    real_values3 = np.array([safe_convert_to_numeric(x) for x in data.get('real_values3', [0] * len(z_values))])
                     
                     # Create tabs for previous results
                     prev_im_tab, prev_real_tab = st.tabs(["Previous Imaginary Parts", "Previous Real Parts"])
