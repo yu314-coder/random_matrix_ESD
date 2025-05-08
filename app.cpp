@@ -33,9 +33,11 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
     const double epsilon = 1e-14;
     const double zero_threshold = 1e-10;  // Threshold for considering a value as zero
     
+    // Declare roots at the beginning of the function so it's in scope throughout
+    CubicRoots roots;
+    
     // Handle special case for a == 0 (quadratic)
     if (std::abs(a) < epsilon) {
-        CubicRoots roots;
         // For a quadratic equation: bz^2 + cz + d = 0
         if (std::abs(b) < epsilon) {  // Linear equation or constant
             if (std::abs(c) < epsilon) {  // Constant - no finite roots
@@ -72,7 +74,6 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
     // Handle special case when d is zero - one root is zero
     if (std::abs(d) < epsilon) {
         // Factor out z: z(az^2 + bz + c) = 0
-        CubicRoots roots;
         roots.root1 = std::complex<double>(0.0, 0.0);  // One root is exactly zero
         
         // Solve the quadratic: az^2 + bz + c = 0
