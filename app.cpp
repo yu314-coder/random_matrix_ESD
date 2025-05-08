@@ -339,13 +339,31 @@ bool saveImSDataAsJSON(const std::string& filename,
         return false;
     }
     
+    // Helper function to format floating point values safely for JSON
+    auto formatJsonValue = [](double value) -> std::string {
+        if (std::isnan(value)) {
+            return "\"NaN\""; // JSON doesn't support NaN, so use string
+        } else if (std::isinf(value)) {
+            if (value > 0) {
+                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+            } else {
+                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+            }
+        } else {
+            // Use a fixed precision to avoid excessively long numbers
+            std::ostringstream oss;
+            oss << std::setprecision(15) << value;
+            return oss.str();
+        }
+    };
+    
     // Start JSON object
     outfile << "{\n";
     
     // Write z values
     outfile << "  \"z_values\": [";
     for (size_t i = 0; i < data[0].size(); ++i) {
-        outfile << data[0][i];
+        outfile << formatJsonValue(data[0][i]);
         if (i < data[0].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -353,7 +371,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for first root
     outfile << "  \"ims_values1\": [";
     for (size_t i = 0; i < data[1].size(); ++i) {
-        outfile << data[1][i];
+        outfile << formatJsonValue(data[1][i]);
         if (i < data[1].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -361,7 +379,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for second root
     outfile << "  \"ims_values2\": [";
     for (size_t i = 0; i < data[2].size(); ++i) {
-        outfile << data[2][i];
+        outfile << formatJsonValue(data[2][i]);
         if (i < data[2].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -369,7 +387,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Im(s) values for third root
     outfile << "  \"ims_values3\": [";
     for (size_t i = 0; i < data[3].size(); ++i) {
-        outfile << data[3][i];
+        outfile << formatJsonValue(data[3][i]);
         if (i < data[3].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -377,7 +395,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for first root
     outfile << "  \"real_values1\": [";
     for (size_t i = 0; i < data[4].size(); ++i) {
-        outfile << data[4][i];
+        outfile << formatJsonValue(data[4][i]);
         if (i < data[4].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -385,7 +403,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for second root
     outfile << "  \"real_values2\": [";
     for (size_t i = 0; i < data[5].size(); ++i) {
-        outfile << data[5][i];
+        outfile << formatJsonValue(data[5][i]);
         if (i < data[5].size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -393,7 +411,7 @@ bool saveImSDataAsJSON(const std::string& filename,
     // Write Real(s) values for third root
     outfile << "  \"real_values3\": [";
     for (size_t i = 0; i < data[6].size(); ++i) {
-        outfile << data[6][i];
+        outfile << formatJsonValue(data[6][i]);
         if (i < data[6].size() - 1) outfile << ", ";
     }
     outfile << "]\n";
@@ -517,13 +535,31 @@ bool save_as_json(const std::string& filename,
         return false;
     }
     
+    // Helper function to format floating point values safely for JSON
+    auto formatJsonValue = [](double value) -> std::string {
+        if (std::isnan(value)) {
+            return "\"NaN\""; // JSON doesn't support NaN, so use string
+        } else if (std::isinf(value)) {
+            if (value > 0) {
+                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+            } else {
+                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+            }
+        } else {
+            // Use a fixed precision to avoid excessively long numbers
+            std::ostringstream oss;
+            oss << std::setprecision(15) << value;
+            return oss.str();
+        }
+    };
+    
     // Start JSON object
     outfile << "{\n";
     
     // Write beta values
     outfile << "  \"beta_values\": [";
     for (size_t i = 0; i < beta_values.size(); ++i) {
-        outfile << beta_values[i];
+        outfile << formatJsonValue(beta_values[i]);
         if (i < beta_values.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -531,7 +567,7 @@ bool save_as_json(const std::string& filename,
     // Write max eigenvalues
     outfile << "  \"max_eigenvalues\": [";
     for (size_t i = 0; i < max_eigenvalues.size(); ++i) {
-        outfile << max_eigenvalues[i];
+        outfile << formatJsonValue(max_eigenvalues[i]);
         if (i < max_eigenvalues.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -539,7 +575,7 @@ bool save_as_json(const std::string& filename,
     // Write min eigenvalues
     outfile << "  \"min_eigenvalues\": [";
     for (size_t i = 0; i < min_eigenvalues.size(); ++i) {
-        outfile << min_eigenvalues[i];
+        outfile << formatJsonValue(min_eigenvalues[i]);
         if (i < min_eigenvalues.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -547,7 +583,7 @@ bool save_as_json(const std::string& filename,
     // Write theoretical max values
     outfile << "  \"theoretical_max\": [";
     for (size_t i = 0; i < theoretical_max_values.size(); ++i) {
-        outfile << theoretical_max_values[i];
+        outfile << formatJsonValue(theoretical_max_values[i]);
         if (i < theoretical_max_values.size() - 1) outfile << ", ";
     }
     outfile << "],\n";
@@ -555,7 +591,7 @@ bool save_as_json(const std::string& filename,
     // Write theoretical min values
     outfile << "  \"theoretical_min\": [";
     for (size_t i = 0; i < theoretical_min_values.size(); ++i) {
-        outfile << theoretical_min_values[i];
+        outfile << formatJsonValue(theoretical_min_values[i]);
         if (i < theoretical_min_values.size() - 1) outfile << ", ";
     }
     outfile << "]\n";
