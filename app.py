@@ -552,9 +552,9 @@ std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, 
         CubicRoots roots = solveCubic(coef_a, coef_b, coef_c, coef_d);
         
         // Extract imaginary and real parts
-        ims_values1[i] = std::abs(roots.root1.imag());
-        ims_values2[i] = std::abs(roots.root2.imag());
-        ims_values3[i] = std::abs(roots.root3.imag());
+        ims_values1[i] = std::abs(roots.root1.imag());  // already using abs in C++
+        ims_values2[i] = std::abs(roots.root2.imag());  // already using abs in C++
+        ims_values3[i] = std::abs(roots.root3.imag());  // already using abs in C++
         
         real_values1[i] = roots.root1.real();
         real_values2[i] = roots.root2.real();
@@ -1957,7 +1957,6 @@ with tab2:
                                     positives = 0
                                     negatives = 0
                                     
-                                    # Handle NaN values
                                     # Handle NaN values
                                     r1 = real_values1[i] if not np.isnan(real_values1[i]) else 0
                                     r2 = real_values2[i] if not np.isnan(real_values2[i]) else 0
