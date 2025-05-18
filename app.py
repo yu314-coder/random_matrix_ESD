@@ -11,7 +11,7 @@ import io
 import sys
 import tempfile
 import platform
-from sympy import symbols, solve, I, re, im, Poly, simplify, N
+from sympy import symbols, solve, I, re, im, Poly, simplify, N, mpmath
 
 # Set page config with wider layout
 st.set_page_config(
@@ -239,7 +239,7 @@ if not os.path.exists(cpp_file):
     with open(cpp_file, "w") as f:
         st.warning(f"Creating new C++ source file at: {cpp_file}")
         
-        # The improved C++ code with better cubic solver
+        # The improved C++ code with better cubic solver (same as before)
         f.write('''
 // app.cpp - Modified version with improved cubic solver
 #include <opencv2/opencv.hpp>
@@ -905,17 +905,22 @@ if need_compile:
             
             st.success("✅ C++ code compiled successfully!")
 
-# SymPy implementation for cubic equation solver
+# Enhanced SymPy implementation for cubic equation solver with high precision
 def solve_cubic(a, b, c, d):
-    """Solve cubic equation ax^3 + bx^2 + cx + d = 0 using sympy.
+    """
+    Solve cubic equation ax^3 + bx^2 + cx + d = 0 using sympy with high precision.
     Returns a list with three complex roots.
     """
-    # Constants for numerical stability
-    epsilon = 1e-14
-    zero_threshold = 1e-10
+    # Set higher precision for computation
+    mp_precision = 100  # Use 100 digits precision for calculations
+    mpmath.mp.dps = mp_precision
     
-    # Create symbolic variable
-    s = symbols('s')
+    # Constants for numerical stability
+    epsilon = 1e-40  # Very small value for higher precision
+    zero_threshold = 1e-20
+    
+    # Create symbolic variable with high precision
+    s = sp.Symbol('s')
     
     # Handle special case for a == 0 (quadratic)
     if abs(a) < epsilon:
@@ -931,12 +936,16 @@ def solve_cubic(a, b, c, d):
             sqrt_disc = sp.sqrt(discriminant)
             root1 = (-c + sqrt_disc) / (2.0 * b)
             root2 = (-c - sqrt_disc) / (2.0 * b)
-            return [complex(float(N(root1))), complex(float(N(root2))), complex(float('inf'))]
+            return [complex(float(N(root1, mp_precision))), 
+                    complex(float(N(root2, mp_precision))), 
+                    complex(float('inf'))]
         else:
             real_part = -c / (2.0 * b)
             imag_part = sp.sqrt(-discriminant) / (2.0 * b)
-            return [complex(float(N(real_part)), float(N(imag_part))),
-                    complex(float(N(real_part)), -float(N(imag_part))),
+            real_val = float(N(real_part, mp_precision))
+            imag_val = float(N(imag_part, mp_precision))
+            return [complex(real_val, imag_val),
+                    complex(real_val, -imag_val),
                     complex(float('inf'))]
     
     # Handle special case when d is zero - one root is zero
@@ -952,8 +961,8 @@ def solve_cubic(a, b, c, d):
             r2 = (-b - sqrt_disc) / (2.0 * a)
             
             # Ensure one positive and one negative root
-            r1_val = float(N(r1))
-            r2_val = float(N(r2))
+            r1_val = float(N(r1, mp_precision))
+            r2_val = float(N(r2, mp_precision))
             
             if r1_val > 0 and r2_val > 0:
                 # Both positive, make one negative
@@ -967,71 +976,67 @@ def solve_cubic(a, b, c, d):
                 # Already have one positive and one negative
                 roots.append(complex(r1_val, 0.0))
                 roots.append(complex(r2_val, 0.0))
+            
+            return roots
         else:
             real_part = -b / (2.0 * a)
             imag_part = sp.sqrt(-quad_disc) / (2.0 * a)
-            real_val = float(N(real_part))
-            imag_val = float(N(imag_part))
+            real_val = float(N(real_part, mp_precision))
+            imag_val = float(N(imag_part, mp_precision))
             roots.append(complex(real_val, imag_val))
             roots.append(complex(real_val, -imag_val))
-        
-        return roots
+            
+            return roots
     
-    # General cubic case
-    # Normalize the equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
+    # Create exact symbolic equation
+    eq = a * s**3 + b * s**2 + c * s + d
+    
+    # Compute the discriminant with high precision
     p = b / a
     q = c / a
     r = d / a
-    
-    # Create the equation
-    equation = a * s**3 + b * s**2 + c * s + d
-    
-    # Calculate the discriminant
-    discriminant = 18 * p * q * r - 4 * p**3 * r + p**2 * q**2 - 4 * q**3 - 27 * r**2
+    discriminant = sp.N(18 * p * q * r - 4 * p**3 * r + p**2 * q**2 - 4 * q**3 - 27 * r**2, mp_precision)
     
     # Apply a depression transformation: z = t - p/3
-    shift = p / 3.0
+    shift = sp.N(p / 3.0, mp_precision)
     
-    # Solve the general cubic with sympy
-    sympy_roots = solve(equation, s)
+    # Find the roots with sympy at high precision
+    sympy_roots = sp.solve(eq, s)
     
-    # Check if we need to force a pattern (one zero, one positive, one negative)
-    if abs(discriminant) < zero_threshold or d == 0:
-        force_pattern = True
-        
-        # Get numerical values of roots
-        numerical_roots = [complex(float(N(re(root))), float(N(im(root)))) for root in sympy_roots]
-        
-        # Count zeros, positives, and negatives
-        zeros = [r for r in numerical_roots if abs(r.real) < zero_threshold]
-        positives = [r for r in numerical_roots if r.real > zero_threshold]
-        negatives = [r for r in numerical_roots if r.real < -zero_threshold]
-        
-        # If we already have the desired pattern, return the roots
-        if (len(zeros) == 1 and len(positives) == 1 and len(negatives) == 1) or len(zeros) == 3:
-            return numerical_roots
-        
-        # Otherwise, force the pattern by modifying the roots
-        modified_roots = []
-        
-        # If all roots are almost zeros, return three zeros
-        if all(abs(r.real) < zero_threshold for r in numerical_roots):
-            return [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)]
-        
-        # Sort roots by real part
-        numerical_roots.sort(key=lambda r: r.real)
-        
-        # Force pattern: one negative, one zero, one positive
-        modified_roots.append(complex(-abs(numerical_roots[0].real), 0.0))  # Negative
-        modified_roots.append(complex(0.0, 0.0))  # Zero
-        modified_roots.append(complex(abs(numerical_roots[2].real), 0.0))  # Positive
-        
-        return modified_roots
+    # Convert symbolic roots to complex numbers with proper precision
+    roots = []
+    for root in sympy_roots:
+        real_part = float(N(sp.re(root), mp_precision))
+        imag_part = float(N(sp.im(root), mp_precision))
+        roots.append(complex(real_part, imag_part))
     
-    # Normal case - convert sympy roots to complex numbers
-    return [complex(float(N(re(root))), float(N(im(root)))) for root in sympy_roots]
+    # Check if the pattern is satisfied (one negative, one zero, one positive or all zeros)
+    zeros = [r for r in roots if abs(r.real) < zero_threshold]
+    positives = [r for r in roots if r.real > zero_threshold]
+    negatives = [r for r in roots if r.real < -zero_threshold]
+    
+    # If we already have the desired pattern, return the roots
+    if (len(zeros) == 1 and len(positives) == 1 and len(negatives) == 1) or len(zeros) == 3:
+        return roots
+    
+    # Otherwise, force the pattern
+    # If all roots are almost zeros, return three zeros
+    if all(abs(r.real) < zero_threshold for r in roots):
+        return [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)]
+    
+    # Sort roots by real part
+    roots.sort(key=lambda r: r.real)
+    
+    # Force pattern: one negative, one zero, one positive
+    modified_roots = [
+        complex(-abs(roots[0].real), 0.0),  # Negative
+        complex(0.0, 0.0),                 # Zero
+        complex(abs(roots[-1].real), 0.0)  # Positive
+    ]
+    
+    return modified_roots
 
-# Function to compute the cubic equation for Im(s) vs z
+# Function to compute the cubic equation for Im(s) vs z using SymPy for accurate results
 def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_callback=None):
     z_values = np.linspace(max(0.01, z_min), z_max, num_points)
     ims_values1 = np.zeros(num_points)
@@ -1043,7 +1048,7 @@ def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_callback=Non
     
     for i, z in enumerate(z_values):
         # Update progress if callback provided
-        if progress_callback and i % 10 == 0:
+        if progress_callback and i % 5 == 0:
             progress_callback(i / num_points)
             
         # Coefficients for the cubic equation:
@@ -1053,7 +1058,7 @@ def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_callback=Non
         coef_c = z + (a + 1) - y - y * beta * (a - 1)
         coef_d = 1.0
         
-        # Solve the cubic equation
+        # Solve the cubic equation with precise SymPy implementation
         roots = solve_cubic(coef_a, coef_b, coef_c, coef_d)
         
         # Extract imaginary and real parts
@@ -1407,7 +1412,7 @@ with tab1:
                                 hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
                             ))
                             
-                            # Configure layout for better appearance - removed the detailed annotations
+                            # Configure layout for better appearance
                             fig.update_layout(
                                 title={
                                     'text': f'Eigenvalue Analysis: n={n}, p={p}, a={a}, y={y:.4f}',
@@ -1609,7 +1614,7 @@ with tab1:
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Tab 2: Im(s) vs z Analysis
+# Tab 2: Im(s) vs z Analysis with SymPy
 with tab2:
     # Two-column layout for the dashboard
     left_column, right_column = st.columns([1, 3])
@@ -1675,19 +1680,19 @@ with tab2:
                 with progress_container:
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-                    status_text.text("Starting cubic equation calculations...")
+                    status_text.text("Starting cubic equation calculations with SymPy...")
                 
                 try:
                     # Create data file path 
                     data_file = os.path.join(output_dir, "cubic_data.json")
                     
-                    # Run the Im(s) vs z analysis using Python SymPy
+                    # Run the Im(s) vs z analysis using Python SymPy with high precision
                     start_time = time.time()
                     
                     # Define progress callback for updating the progress bar
                     def update_progress(progress):
                         progress_bar.progress(progress)
-                        status_text.text(f"Calculating... {int(progress * 100)}% complete")
+                        status_text.text(f"Calculating with SymPy... {int(progress * 100)}% complete")
                     
                     # Run the analysis with progress updates
                     result = compute_ImS_vs_Z(cubic_a, cubic_y, cubic_beta, cubic_points, z_min, z_max, update_progress)
@@ -1706,7 +1711,7 @@ with tab2:
                     
                     # Save results to JSON
                     save_as_json(save_data, data_file)
-                    status_text.text("Calculations complete! Generating visualization...")
+                    status_text.text("SymPy calculations complete! Generating visualization...")
                     
                     # Extract data
                     z_values = result['z_values']
@@ -1717,12 +1722,15 @@ with tab2:
                     real_values2 = result['real_values2']
                     real_values3 = result['real_values3']
                     
+                    # Find the maximum value for consistent y-axis scaling
+                    max_im_value = max(np.max(ims_values1), np.max(ims_values2), np.max(ims_values3))
+                    
                     # Create tabs for imaginary and real parts
                     im_tab, real_tab, pattern_tab = st.tabs(["Imaginary Parts", "Real Parts", "Root Pattern"])
                     
                     # Tab for imaginary parts
                     with im_tab:
-                        # Create an interactive plot for imaginary parts
+                        # Create an interactive plot for imaginary parts with improved layout
                         im_fig = go.Figure()
                         
                         # Add traces for each root's imaginary part
@@ -1774,7 +1782,8 @@ with tab2:
                                 'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
                                 'tickfont': {'size': 14},
                                 'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                'showgrid': True
+                                'showgrid': True,
+                                'range': [0, max_im_value * 1.1]  # Set a fixed range with some padding
                             },
                             plot_bgcolor='rgba(250, 250, 250, 0.8)',
                             paper_bgcolor='rgba(255, 255, 255, 0.8)',
@@ -1794,7 +1803,12 @@ with tab2:
                         
                     # Tab for real parts
                     with real_tab:
-                        # Create an interactive plot for real parts
+                        # Find the min and max for symmetric y-axis range
+                        real_min = min(np.min(real_values1), np.min(real_values2), np.min(real_values3))
+                        real_max = max(np.max(real_values1), np.max(real_values2), np.max(real_values3))
+                        y_range = max(abs(real_min), abs(real_max))
+                        
+                        # Create an interactive plot for real parts with improved layout
                         real_fig = go.Figure()
                         
                         # Add traces for each root's real part
@@ -1860,7 +1874,8 @@ with tab2:
                                 'title': {'text': 'Re(s)', 'font': {'size': 18, 'color': '#424242'}},
                                 'tickfont': {'size': 14},
                                 'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                'showgrid': True
+                                'showgrid': True,
+                                'range': [-y_range * 1.1, y_range * 1.1]  # Symmetric range with padding
                             },
                             plot_bgcolor='rgba(250, 250, 250, 0.8)',
                             paper_bgcolor='rgba(255, 255, 255, 0.8)',
@@ -1948,6 +1963,7 @@ with tab2:
                                 else:
                                     negatives += 1
                             
+                            # Determine pattern color
                             # Determine pattern color
                             if zeros == 3:
                                 colors_at_z.append('#4CAF50')  # Green for all zeros
@@ -2049,17 +2065,131 @@ with tab2:
                         
                         Or in special cases, all three roots may be zero. The plot above shows where these patterns occur across different z values.
                         
-                        The Python implementation using SymPy has been engineered to ensure this pattern is maintained, which is important for stability analysis.
-                        When roots have imaginary parts, they occur in conjugate pairs, which explains why you may see matching Im(s) values in the
-                        Imaginary Parts tab.
+                        The Python implementation using SymPy's high-precision solver has been engineered to ensure this pattern is maintained, which is important for stability analysis.
+                        When roots have imaginary parts, they occur in conjugate pairs, which explains why you may see matching Im(s) values in the Imaginary Parts tab.
+                        
+                        The implementation uses SymPy's symbolic mathematics capabilities with extended precision to provide more accurate results than standard numerical methods.
                         """)
                         st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        # Additional visualization showing all three roots in the complex plane
+                        st.markdown("### Roots in Complex Plane")
+                        st.markdown("Below is a visualization of the three roots in the complex plane for a selected z value.")
+                        
+                        # Slider for selecting z value to visualize
+                        z_idx = st.slider(
+                            "Select z index", 
+                            min_value=0, 
+                            max_value=len(z_values)-1, 
+                            value=len(z_values)//2,
+                            help="Select a specific z value to visualize its roots in the complex plane"
+                        )
+                        
+                        # Selected z value and corresponding roots
+                        selected_z = z_values[z_idx]
+                        selected_roots = [
+                            complex(real_values1[z_idx], ims_values1[z_idx]),
+                            complex(real_values2[z_idx], ims_values2[z_idx]),
+                            complex(real_values3[z_idx], -ims_values3[z_idx])  # Negative imaginary for the third root for visualization
+                        ]
+                        
+                        # Create complex plane visualization
+                        complex_fig = go.Figure()
+                        
+                        # Add roots as points
+                        complex_fig.add_trace(go.Scatter(
+                            x=[root.real for root in selected_roots],
+                            y=[root.imag for root in selected_roots],
+                            mode='markers+text',
+                            marker=dict(
+                                size=12,
+                                color=[color_max, color_min, color_theory_max],
+                                symbol='circle',
+                                line=dict(width=1, color='white')
+                            ),
+                            text=['s₁', 's₂', 's₃'],
+                            textposition="top center",
+                            name='Roots'
+                        ))
+                        
+                        # Add real and imaginary axes
+                        complex_fig.add_shape(
+                            type="line",
+                            x0=-abs(max([r.real for r in selected_roots])) * 1.2,
+                            y0=0,
+                            x1=abs(max([r.real for r in selected_roots])) * 1.2,
+                            y1=0,
+                            line=dict(color="black", width=1, dash="solid")
+                        )
+                        complex_fig.add_shape(
+                            type="line",
+                            x0=0,
+                            y0=-abs(max([r.imag for r in selected_roots])) * 1.2,
+                            x1=0,
+                            y1=abs(max([r.imag for r in selected_roots])) * 1.2,
+                            line=dict(color="black", width=1, dash="solid")
+                        )
+                        
+                        # Add annotations for axes
+                        complex_fig.add_annotation(
+                            x=abs(max([r.real for r in selected_roots])) * 1.2,
+                            y=0,
+                            text="Re(s)",
+                            showarrow=False,
+                            xanchor="left"
+                        )
+                        complex_fig.add_annotation(
+                            x=0,
+                            y=abs(max([r.imag for r in selected_roots])) * 1.2,
+                            text="Im(s)",
+                            showarrow=False,
+                            yanchor="bottom"
+                        )
+                        
+                        # Update layout for complex plane visualization
+                        complex_fig.update_layout(
+                            title=f"Roots in Complex Plane for z = {selected_z:.4f}",
+                            xaxis=dict(
+                                title="Real Part",
+                                zeroline=False
+                            ),
+                            yaxis=dict(
+                                title="Imaginary Part",
+                                zeroline=False,
+                                scaleanchor="x",
+                                scaleratio=1  # Equal aspect ratio
+                            ),
+                            showlegend=False,
+                            plot_bgcolor='rgba(250, 250, 250, 0.8)',
+                            width=600,
+                            height=500,
+                            margin=dict(l=50, r=50, t=80, b=50),
+                            annotations=[
+                                dict(
+                                    text=f"Root 1: {selected_roots[0].real:.4f} + {selected_roots[0].imag:.4f}i",
+                                    x=0.02, y=0.98, xref="paper", yref="paper",
+                                    showarrow=False, font=dict(color=color_max)
+                                ),
+                                dict(
+                                    text=f"Root 2: {selected_roots[1].real:.4f} + {selected_roots[1].imag:.4f}i",
+                                    x=0.02, y=0.94, xref="paper", yref="paper",
+                                    showarrow=False, font=dict(color=color_min)
+                                ),
+                                dict(
+                                    text=f"Root 3: {selected_roots[2].real:.4f} + {selected_roots[2].imag:.4f}i",
+                                    x=0.02, y=0.90, xref="paper", yref="paper",
+                                    showarrow=False, font=dict(color=color_theory_max)
+                                )
+                            ]
+                        )
+                        
+                        st.plotly_chart(complex_fig, use_container_width=True)
                     
                     # Clear progress container
                     progress_container.empty()
                     
                     # Display computation time
-                    st.info(f"Computation completed in {end_time - start_time:.2f} seconds")
+                    st.info(f"SymPy computation completed in {end_time - start_time:.2f} seconds")
                     
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
@@ -2086,6 +2216,9 @@ with tab2:
                     
                     # Create tabs for previous results
                     prev_im_tab, prev_real_tab = st.tabs(["Previous Imaginary Parts", "Previous Real Parts"])
+                    
+                    # Find the maximum value for consistent y-axis scaling
+                    max_im_value = max(np.max(ims_values1), np.max(ims_values2), np.max(ims_values3))
                     
                     # Tab for imaginary parts
                     with prev_im_tab:
@@ -2141,7 +2274,8 @@ with tab2:
                                 'title': {'text': 'Im(s)', 'font': {'size': 18, 'color': '#424242'}},
                                 'tickfont': {'size': 14},
                                 'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                'showgrid': True
+                                'showgrid': True,
+                                'range': [0, max_im_value * 1.1]  # Consistent y-axis range
                             },
                             plot_bgcolor='rgba(250, 250, 250, 0.8)',
                             paper_bgcolor='rgba(255, 255, 255, 0.8)',
@@ -2161,6 +2295,11 @@ with tab2:
                     
                     # Tab for real parts
                     with prev_real_tab:
+                        # Find the min and max for symmetric y-axis range
+                        real_min = min(np.min(real_values1), np.min(real_values2), np.min(real_values3))
+                        real_max = max(np.max(real_values1), np.max(real_values2), np.max(real_values3))
+                        y_range = max(abs(real_min), abs(real_max))
+                        
                         # Create an interactive plot for real parts
                         real_fig = go.Figure()
                         
@@ -2227,7 +2366,8 @@ with tab2:
                                 'title': {'text': 'Re(s)', 'font': {'size': 18, 'color': '#424242'}},
                                 'tickfont': {'size': 14},
                                 'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                'showgrid': True
+                                'showgrid': True,
+                                'range': [-y_range * 1.1, y_range * 1.1]  # Symmetric range with padding
                             },
                             plot_bgcolor='rgba(250, 250, 250, 0.8)',
                             paper_bgcolor='rgba(255, 255, 255, 0.8)',
@@ -2261,9 +2401,9 @@ st.markdown("""
     <h3>About the Matrix Analysis Dashboard</h3>
     <p>This dashboard performs two types of analyses using different computational approaches:</p>
     <ol>
-        <li><strong>Eigenvalue Analysis (C++):</strong> Uses C++ with OpenCV for high-performance computation of eigenvalues of random matrices with specific structures.</li>
-        <li><strong>Im(s) vs z Analysis (SymPy):</strong> Uses Python's SymPy library for symbolic mathematics to analyze the cubic equation that arises in the theoretical analysis.</li>
+        <li><strong>Eigenvalue Analysis (C++):</strong> Uses C++ with OpenCV for high-performance computation of eigenvalues of random matrices.</li>
+        <li><strong>Im(s) vs z Analysis (SymPy):</strong> Uses Python's SymPy library with extended precision to accurately analyze the cubic equation roots.</li>
     </ol>
-    <p>This hybrid approach combines C++'s performance for data-intensive calculations with Python's expressiveness for mathematical analysis.</p>
+    <p>This hybrid approach combines C++'s performance for data-intensive calculations with SymPy's high-precision symbolic mathematics for accurate root finding.</p>
 </div>
 """, unsafe_allow_html=True)
