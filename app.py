@@ -1613,7 +1613,7 @@ with tab2:
         # Parameter inputs with defaults and validation
         st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
         st.markdown("### Cubic Equation Parameters")
-        cubic_a = st.number_input("Value for a", min_value=1.1, max_value=10.0, value=2.0, step=0.1, 
+        cubic_a = st.number_input("Value for a", min_value=1.1, max_value=1000.0, value=2.0, step=0.1, 
                                 help="Parameter a > 1", key="cubic_a")
         cubic_y = st.number_input("Value for y", min_value=0.1, max_value=10.0, value=1.0, step=0.1,
                                  help="Parameter y > 0", key="cubic_y")
