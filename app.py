@@ -12,9 +12,7 @@ import io
 import sys
 import tempfile
 import platform
-from sympy import symbols, solve, I, re, im, Poly, simplify, N
-import mpmath
-import scipy
+from sympy import symbols, solve, I, re, im, Poly, simplify, N, mpmath
 
 # Set page config with wider layout
 st.set_page_config(
@@ -865,7 +863,8 @@ if need_compile:
     with st.sidebar:
         with st.spinner("Compiling C++ code..."):
             # Try to detect the OpenCV installation
-            opencv_detection_cmd = ["pkg-config", "--cflags", "--libs", "opencv4"]
+            opencv_detection_cmd = ["pk
+g-config", "--cflags", "--libs", "opencv4"]
             opencv_found, opencv_flags, _ = run_command(opencv_detection_cmd, show_output=False)
             
             compile_commands = []
@@ -2304,17 +2303,16 @@ with tab2:
                             help="Select a specific z value to visualize its roots in the complex plane"
                         )
                         
-                
-        # Create complex plane visualization
+                        # Create complex plane visualization
                         complex_fig = create_complex_plane_visualization(result, z_idx)
                         st.plotly_chart(complex_fig, use_container_width=True)
                     
                 except Exception as e:
-                    st.info("Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
+                    st.info("Ã°ÂÂÂ Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
                     st.error(f"Error loading previous data: {str(e)}")
             else:
                 # Show placeholder
-                st.info(" Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
+                st.info("Ã°ÂÂÂ Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
