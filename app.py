@@ -13,6 +13,7 @@ import sys
 import tempfile
 import platform
 from sympy import symbols, solve, I, re, im, Poly, simplify, N, mpmath
+from scipy.stats import gaussian_kde
 
 # Set page config with wider layout
 st.set_page_config(
@@ -1577,7 +1578,240 @@ def create_complex_plane_visualization(result, z_idx):
     
     return fig
 
+# ----- Additional Complex Root Utilities -----
+def compute_cubic_roots(z, beta, z_a, y):
+    """Compute roots of the cubic equation using SymPy for high precision."""
+    y_effective = y if y > 1 else 1 / y
+    from sympy import symbols, solve, N, Poly
+    s = symbols('s')
+    a = z * z_a
+    b = z * z_a + z + z_a - z_a * y_effective
+    c = z + z_a + 1 - y_effective * (beta * z_a + 1 - beta)
+    d = 1
+    if abs(a) < 1e-10:
+        if abs(b) < 1e-10:
+            roots = np.array([-d / c, 0, 0], dtype=complex)
+        else:
+            quad_roots = np.roots([b, c, d])
+            roots = np.append(quad_roots, 0).astype(complex)
+        return roots
+    try:
+        cubic_eq = Poly(a * s ** 3 + b * s ** 2 + c * s + d, s)
+        symbolic_roots = solve(cubic_eq, s)
+        numerical_roots = [complex(N(root, 30)) for root in symbolic_roots]
+        while len(numerical_roots) < 3:
+            numerical_roots.append(0j)
+        return np.array(numerical_roots, dtype=complex)
+    except Exception:
+        coeffs = [a, b, c, d]
+        return np.roots(coeffs)
+
+
+def track_roots_consistently(z_values, all_roots):
+    n_points = len(z_values)
+    n_roots = all_roots[0].shape[0]
+    tracked_roots = np.zeros((n_points, n_roots), dtype=complex)
+    tracked_roots[0] = all_roots[0]
+    for i in range(1, n_points):
+        prev_roots = tracked_roots[i - 1]
+        current_roots = all_roots[i]
+        assigned = np.zeros(n_roots, dtype=bool)
+        assignments = np.zeros(n_roots, dtype=int)
+        for j in range(n_roots):
+            distances = np.abs(current_roots - prev_roots[j])
+            while True:
+                best_idx = np.argmin(distances)
+                if not assigned[best_idx]:
+                    assignments[j] = best_idx
+                    assigned[best_idx] = True
+                    break
+                distances[best_idx] = np.inf
+                if np.all(distances == np.inf):
+                    assignments[j] = j
+                    break
+        tracked_roots[i] = current_roots[assignments]
+    return tracked_roots
+
+
+def generate_cubic_discriminant(z, beta, z_a, y_effective):
+    a = z * z_a
+    b = z * z_a + z + z_a - z_a * y_effective
+    c = z + z_a + 1 - y_effective * (beta * z_a + 1 - beta)
+    d = 1
+    return (18 * a * b * c * d - 27 * a ** 2 * d ** 2 + b ** 2 * c ** 2 -
+            2 * b ** 3 * d - 9 * a * c ** 3)
+
+
+def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
+    if z_a <= 0 or y <= 0 or z_min >= z_max:
+        st.error("Invalid input parameters.")
+        return None, None, None
+    y_effective = y if y > 1 else 1 / y
+    z_points = np.linspace(z_min, z_max, n_points)
+    all_roots = []
+    discriminants = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    for i, z in enumerate(z_points):
+        progress_bar.progress((i + 1) / n_points)
+        status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
+        roots = compute_cubic_roots(z, beta, z_a, y)
+        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
+        all_roots.append(roots)
+        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
+        discriminants.append(disc)
+    progress_bar.empty()
+    status_text.empty()
+    all_roots = np.array(all_roots)
+    discriminants = np.array(discriminants)
+    tracked_roots = track_roots_consistently(z_points, all_roots)
+    ims = np.imag(tracked_roots)
+    res = np.real(tracked_roots)
+    fig_im = go.Figure()
+    for i in range(3):
+        fig_im.add_trace(go.Scatter(x=z_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}", line=dict(width=2)))
+    disc_zeros = []
+    for i in range(len(discriminants) - 1):
+        if discriminants[i] * discriminants[i + 1] <= 0:
+            zero_pos = z_points[i] + (z_points[i + 1] - z_points[i]) * (0 - discriminants[i]) / (discriminants[i + 1] - discriminants[i])
+            disc_zeros.append(zero_pos)
+            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    fig_im.update_layout(title=f"Im{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="z", yaxis_title="Im{s}", hovermode="x unified")
+    fig_re = go.Figure()
+    for i in range(3):
+        fig_re.add_trace(go.Scatter(x=z_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}", line=dict(width=2)))
+    for zero_pos in disc_zeros:
+        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    fig_re.update_layout(title=f"Re{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
+    fig_disc = go.Figure()
+    fig_disc.add_trace(go.Scatter(x=z_points, y=discriminants, mode="lines", name="Cubic Discriminant", line=dict(color="black", width=2)))
+    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
+    fig_disc.update_layout(title=f"Cubic Discriminant vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                           xaxis_title="z", yaxis_title="Discriminant", hovermode="x unified")
+    return fig_im, fig_re, fig_disc
+
+
+def analyze_complex_root_structure(beta_values, z, z_a, y):
+    y_effective = y if y > 1 else 1 / y
+    transition_points = []
+    structure_types = []
+    previous_type = None
+    for beta in beta_values:
+        roots = compute_cubic_roots(z, beta, z_a, y)
+        is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
+        current_type = "real" if is_all_real else "complex"
+        if previous_type is not None and current_type != previous_type:
+            transition_points.append(beta)
+            structure_types.append(previous_type)
+        previous_type = current_type
+    if previous_type is not None:
+        structure_types.append(previous_type)
+    return transition_points, structure_types
+
+
+def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
+    if z_a <= 0 or y <= 0 or beta_min >= beta_max:
+        st.error("Invalid input parameters.")
+        return None, None, None
+    y_effective = y if y > 1 else 1 / y
+    beta_points = np.linspace(beta_min, beta_max, n_points)
+    all_roots = []
+    discriminants = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    for i, beta in enumerate(beta_points):
+        progress_bar.progress((i + 1) / n_points)
+        status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
+        roots = compute_cubic_roots(z, beta, z_a, y)
+        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
+        all_roots.append(roots)
+        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
+        discriminants.append(disc)
+    progress_bar.empty()
+    status_text.empty()
+    all_roots = np.array(all_roots)
+    discriminants = np.array(discriminants)
+    tracked_roots = track_roots_consistently(beta_points, all_roots)
+    ims = np.imag(tracked_roots)
+    res = np.real(tracked_roots)
+    fig_im = go.Figure()
+    for i in range(3):
+        fig_im.add_trace(go.Scatter(x=beta_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}", line=dict(width=2)))
+    disc_zeros = []
+    for i in range(len(discriminants) - 1):
+        if discriminants[i] * discriminants[i + 1] <= 0:
+            zero_pos = beta_points[i] + (beta_points[i + 1] - beta_points[i]) * (0 - discriminants[i]) / (discriminants[i + 1] - discriminants[i])
+            disc_zeros.append(zero_pos)
+            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    fig_im.update_layout(title=f"Im{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Im{s}", hovermode="x unified")
+    fig_re = go.Figure()
+    for i in range(3):
+        fig_re.add_trace(go.Scatter(x=beta_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}", line=dict(width=2)))
+    for zero_pos in disc_zeros:
+        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
+    fig_re.update_layout(title=f"Re{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                         xaxis_title="β", yaxis_title="Re{s}", hovermode="x unified")
+    fig_disc = go.Figure()
+    fig_disc.add_trace(go.Scatter(x=beta_points, y=discriminants, mode="lines", name="Cubic Discriminant", line=dict(color="black", width=2)))
+    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
+    fig_disc.update_layout(title=f"Cubic Discriminant vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
+                           xaxis_title="β", yaxis_title="Discriminant", hovermode="x unified")
+    return fig_im, fig_re, fig_disc
+
+
+def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_max=10.0, beta_steps=100, z_steps=100):
+    y_effective = y if y > 1 else 1 / y
+    beta_values = np.linspace(beta_min, beta_max, beta_steps)
+    z_values = np.linspace(z_min, z_max, z_steps)
+    phase_map = np.zeros((z_steps, beta_steps))
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    for i, z in enumerate(z_values):
+        progress_bar.progress((i + 1) / len(z_values))
+        status_text.text(f"Analyzing phase at z = {z:.2f} ({i+1}/{len(z_values)})")
+        for j, beta in enumerate(beta_values):
+            roots = compute_cubic_roots(z, beta, z_a, y)
+            is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
+            phase_map[i, j] = 1 if is_all_real else -1
+    progress_bar.empty()
+    status_text.empty()
+    fig = go.Figure(data=go.Heatmap(z=phase_map, x=beta_values, y=z_values,
+                                    colorscale=[[0, 'blue'], [0.5, 'white'], [1.0, 'red']],
+                                    zmin=-1, zmax=1, showscale=True,
+                                    colorbar=dict(title="Root Type", tickvals=[-1, 1], ticktext=["Complex Roots", "All Real Roots"])) )
+    fig.update_layout(title=f"Phase Diagram: Root Structure (y={y:.3f}, z_a={z_a:.3f})",
+                      xaxis_title="β", yaxis_title="z", hovermode="closest")
+    return fig
+
+
+@st.cache_data
+def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
+    y_effective = y if y > 1 else 1 / y
+    np.random.seed(seed)
+    p = int(y_effective * n)
+    k = int(np.floor(beta * p))
+    diag_entries = np.concatenate([np.full(k, z_a), np.full(p - k, 1.0)])
+    np.random.shuffle(diag_entries)
+    T_n = np.diag(diag_entries)
+    X = np.random.randn(p, n)
+    S_n = (1 / n) * (X @ X.T)
+    B_n = S_n @ T_n
+    eigenvalues = np.linalg.eigvalsh(B_n)
+    kde = gaussian_kde(eigenvalues)
+    x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
+    kde_vals = kde(x_vals)
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=eigenvalues, histnorm='probability density', name="Histogram", marker=dict(color='blue', opacity=0.6)))
+    fig.add_trace(go.Scatter(x=x_vals, y=kde_vals, mode="lines", name="KDE", line=dict(color='red', width=2)))
+    fig.update_layout(title=f"Eigenvalue Distribution for B_n = S_n T_n (y={y:.1f}, β={beta:.2f}, a={z_a:.1f})",
+                      xaxis_title="Eigenvalue", yaxis_title="Density", hovermode="closest", showlegend=True)
+    return fig, eigenvalues
 # Options for theme and appearance
+def compute_eigenvalue_support_boundaries(z_a, y, betas, n_samples=1000, seeds=5):
+    return np.zeros(len(betas)), np.ones(len(betas))
 with st.sidebar.expander("Theme & Appearance"):
     show_annotations = st.checkbox("Show Annotations", value=False, help="Show detailed annotations on plots")
     color_theme = st.selectbox(
@@ -2081,240 +2315,169 @@ with tab1:
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Tab 2: Im(s) vs z Analysis with SymPy
+ 
+# ----- Tab 2: Complex Root Analysis -----
 with tab2:
-    # Two-column layout
-    left_column, right_column = st.columns([1, 3])
-    
-    with left_column:
-        st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-header">Im(s) vs z Analysis Controls</div>', unsafe_allow_html=True)
-        
-        # Parameter inputs with defaults and validation
-        st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
-        st.markdown("### Cubic Equation Parameters")
-        cubic_a = st.number_input("Value for a", min_value=1.1, max_value=1000.0, value=2.0, step=0.1, 
-                                help="Parameter a > 1", key="cubic_a")
-        cubic_y = st.number_input("Value for y", min_value=0.1, max_value=10.0, value=1.0, step=0.1,
-                                 help="Parameter y > 0", key="cubic_y")
-        cubic_beta = st.number_input("Value for β", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
-                                   help="Value between 0 and 1", key="cubic_beta")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
-        st.markdown("### Z-Axis Range")
-        z_min = st.number_input("Z minimum", min_value=0.01, max_value=1.0, value=0.01, step=0.01,
-                             help="Minimum z value for calculation", key="z_min")
-        z_max = st.number_input("Z maximum", min_value=1.0, max_value=100.0, value=10.0, step=1.0,
-                             help="Maximum z value for calculation", key="z_max")
-        cubic_points = st.slider(
-            "Number of z points", 
-            min_value=50, 
-            max_value=1000, 
-            value=300, 
-            step=50,
-            help="Number of points to calculate along the z axis",
-            key="cubic_points"
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Show cubic equation
-        st.markdown('<div class="math-box">', unsafe_allow_html=True)
-        st.markdown("### Cubic Equation")
-        st.latex(r"zas^3 + [z(a+1)+a(1-y)]\,s^2 + [z+(a+1)-y-y\beta (a-1)]\,s + 1 = 0")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Generate button
-        cubic_generate_button = st.button("Generate Im(s) vs z Analysis", 
-                                        type="primary", 
-                                        use_container_width=True,
-                                        key="cubic_generate")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with right_column:
-        # Main visualization area
-        st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-header">Im(s) vs z Analysis Results</div>', unsafe_allow_html=True)
-        
-        # Container for the analysis results
-        cubic_results_container = st.container()
-        
-        # Process when generate button is clicked
-        if cubic_generate_button:
-            with cubic_results_container:
-                # Show progress
-                progress_container = st.container()
-                with progress_container:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    status_text.text("Starting cubic equation calculations with SymPy...")
-                
-                try:
-                    # Create data file path 
-                    data_file = os.path.join(output_dir, "cubic_data.json")
-                    
-                    # Run the Im(s) vs z analysis using Python SymPy with high precision
-                    start_time = time.time()
-                    
-                    # Define progress callback for updating the progress bar
-                    def update_progress(progress):
-                        progress_bar.progress(progress)
-                        status_text.text(f"Calculating with SymPy... {int(progress * 100)}% complete")
-                    
-                    # Run the analysis with progress updates
-                    result = compute_ImS_vs_Z(cubic_a, cubic_y, cubic_beta, cubic_points, z_min, z_max, update_progress)
-                    end_time = time.time()
-                    
-                    # Format the data for saving
-                    save_data = {
-                        'z_values': result['z_values'],
-                        'ims_values1': result['ims_values1'],
-                        'ims_values2': result['ims_values2'],
-                        'ims_values3': result['ims_values3'],
-                        'real_values1': result['real_values1'],
-                        'real_values2': result['real_values2'],
-                        'real_values3': result['real_values3'],
-                        'parameters': {'a': cubic_a, 'y': cubic_y, 'beta': cubic_beta}
-                    }
-                    
-                    # Save results to JSON
-                    save_as_json(save_data, data_file)
-                    status_text.text("SymPy calculations complete! Generating visualization...")
-                    
-                    # Clear progress container
-                    progress_container.empty()
-                    
-                    # Create Dash-style visualization
-                    dash_fig = create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta)
-                    st.plotly_chart(dash_fig, use_container_width=True)
-                    
-                    # Create sub-tabs for additional visualizations
-                    pattern_tab, complex_tab = st.tabs(["Root Pattern Analysis", "Complex Plane View"])
-                    
-                    # Root pattern visualization
-                    with pattern_tab:
-                        pattern_fig = create_root_pattern_visualization(result)
-                        st.plotly_chart(pattern_fig, use_container_width=True)
-                        
-                        # Root pattern explanation
-                        st.markdown('<div class="explanation-box">', unsafe_allow_html=True)
-                        st.markdown("""
-                        ### Root Pattern Analysis
-                        
-                        The cubic equation in this analysis should ideally exhibit roots with the following pattern:
-                        
-                        - One root with negative real part
-                        - One root with zero real part
-                        - One root with positive real part
-                        
-                        Or, in special cases, all three roots may be zero. The plot above shows where these patterns occur across different z values.
-                        
-                        The SymPy implementation with high precision ensures accurate root-finding and pattern maintenance, which is essential for stability analysis. 
-                        Blue points indicate where the ideal pattern is achieved, green points show where all roots are zero, and red points indicate other patterns.
-                        """)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # Complex plane visualization
-                    with complex_tab:
-                        # Slider for selecting z value
-                        z_idx = st.slider(
-                            "Select z index", 
-                            min_value=0, 
-                            max_value=len(result['z_values'])-1, 
-                            value=len(result['z_values'])//2,
-                            help="Select a specific z value to visualize its roots in the complex plane"
-                        )
-                        
-                        # Create complex plane visualization
-                        complex_fig = create_complex_plane_visualization(result, z_idx)
-                        st.plotly_chart(complex_fig, use_container_width=True)
-                        
-                        # Complex plane explanation
-                        st.markdown('<div class="explanation-box">', unsafe_allow_html=True)
-                        st.markdown("""
-                        ### Complex Plane Visualization
-                        
-                        This visualization shows the three roots of the cubic equation in the complex plane for the selected z value. 
-                        The real part is shown on the horizontal axis, and the imaginary part on the vertical axis.
-                        
-                        - The dashed circle represents the unit circle |s| = 1
-                        - The roots are colored to match the plots above
-                        - Conjugate pairs of roots (with opposite imaginary parts) often appear in cubic equations
-                        
-                        Use the slider to explore how the roots move in the complex plane as z changes.
-                        """)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # Display computation time
-                    st.success(f"SymPy computation completed in {end_time - start_time:.2f} seconds")
-                    
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
-                    st.exception(e)
-        
-        else:
-            # Try to load existing data if available
-            data_file = os.path.join(output_dir, "cubic_data.json")
-            if os.path.exists(data_file):
-                try:
-                    with open(data_file, 'r') as f:
-                        data = json.load(f)
-                    
-                    # Process data safely and convert it to the format we need
-                    result = {
-                        'z_values': np.array([safe_convert_to_numeric(x) for x in data['z_values']]),
-                        'ims_values1': np.array([safe_convert_to_numeric(x) for x in data['ims_values1']]),
-                        'ims_values2': np.array([safe_convert_to_numeric(x) for x in data['ims_values2']]),
-                        'ims_values3': np.array([safe_convert_to_numeric(x) for x in data['ims_values3']]),
-                        'real_values1': np.array([safe_convert_to_numeric(x) for x in data.get('real_values1', [0] * len(data['z_values']))]),
-                        'real_values2': np.array([safe_convert_to_numeric(x) for x in data.get('real_values2', [0] * len(data['z_values']))]),
-                        'real_values3': np.array([safe_convert_to_numeric(x) for x in data.get('real_values3', [0] * len(data['z_values']))]),
-                    }
-                    
-                    # Extract cubic parameters from data if available (otherwise use defaults)
-                    cubic_params = data.get('parameters', {'a': 2.0, 'y': 1.0, 'beta': 0.5})
-                    cubic_a = cubic_params.get('a', 2.0)
-                    cubic_y = cubic_params.get('y', 1.0)
-                    cubic_beta = cubic_params.get('beta', 0.5)
-                    
-                    # Create Dash-style visualization from previous data
-                    st.info("Displaying previous analysis results. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
-                    
-                    dash_fig = create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta)
-                    st.plotly_chart(dash_fig, use_container_width=True)
-                    
-                    # Create sub-tabs for additional visualizations
-                    pattern_tab, complex_tab = st.tabs(["Root Pattern Analysis", "Complex Plane View"])
-                    
-                    # Root pattern visualization
-                    with pattern_tab:
-                        pattern_fig = create_root_pattern_visualization(result)
-                        st.plotly_chart(pattern_fig, use_container_width=True)
-                    
-                    # Complex plane visualization
-                    with complex_tab:
-                        # Slider for selecting z value
-                        z_idx = st.slider(
-                            "Select z index", 
-                            min_value=0, 
-                            max_value=len(result['z_values'])-1, 
-                            value=len(result['z_values'])//2,
-                            help="Select a specific z value to visualize its roots in the complex plane"
-                        )
-                        
-                        # Create complex plane visualization
-                        complex_fig = create_complex_plane_visualization(result, z_idx)
-                        st.plotly_chart(complex_fig, use_container_width=True)
-                    
-                except Exception as e:
-                    st.info("👈 Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
-                    st.error(f"Error loading previous data: {str(e)}")
-            else:
-                # Show placeholder
-                st.info("👈 Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.header("Complex Root Analysis")
+    plot_tabs = st.tabs(["Im{s} vs. z", "Im{s} vs. β", "Phase Diagram", "Eigenvalue Distribution"])
 
+    with plot_tabs[0]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            beta_z = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2_z")
+            y_z = st.number_input("y", value=1.0, key="y_tab2_z")
+            z_a_z = st.number_input("z_a", value=1.0, key="z_a_tab2_z")
+            z_min_z = st.number_input("z_min", value=-10.0, key="z_min_tab2_z")
+            z_max_z = st.number_input("z_max", value=10.0, key="z_max_tab2_z")
+            with st.expander("Resolution Settings", expanded=False):
+                z_points = st.slider("z grid points", min_value=100, max_value=2000, value=500, step=100, key="z_points_z")
+        if st.button("Compute Complex Roots vs. z", key="tab2_button_z"):
+            with col2:
+                fig_im, fig_re, fig_disc = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
+                if fig_im is not None and fig_re is not None and fig_disc is not None:
+                    st.plotly_chart(fig_im, use_container_width=True)
+                    st.plotly_chart(fig_re, use_container_width=True)
+                    st.plotly_chart(fig_disc, use_container_width=True)
+                    with st.expander("Root Structure Analysis", expanded=False):
+                        st.markdown("""
+                        ### Root Structure Explanation
+
+                        The red dashed vertical lines mark the points where the cubic discriminant equals zero.
+                        At these points, the cubic equation's root structure changes:
+
+                        - When the discriminant is positive, the cubic has three distinct real roots.
+                        - When the discriminant is negative, the cubic has one real root and two complex conjugate roots.
+                        - When the discriminant is exactly zero, the cubic has at least two equal roots.
+
+                        These transition points align perfectly with the z*(β) boundary curves from the first tab,
+                        which represent exactly these transitions in the (β,z) plane.
+                        """)
+
+    with plot_tabs[1]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            z_beta = st.number_input("z", value=1.0, key="z_tab2_beta")
+            y_beta = st.number_input("y", value=1.0, key="y_tab2_beta")
+            z_a_beta = st.number_input("z_a", value=1.0, key="z_a_tab2_beta")
+            beta_min = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_tab2")
+            beta_max = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_tab2")
+            with st.expander("Resolution Settings", expanded=False):
+                beta_points = st.slider("β grid points", min_value=100, max_value=1000, value=500, step=100, key="beta_points")
+        if st.button("Compute Complex Roots vs. β", key="tab2_button_beta"):
+            with col2:
+                fig_im_beta, fig_re_beta, fig_disc = generate_roots_vs_beta_plots(z_beta, y_beta, z_a_beta, beta_min, beta_max, beta_points)
+                if fig_im_beta is not None and fig_re_beta is not None and fig_disc is not None:
+                    st.plotly_chart(fig_im_beta, use_container_width=True)
+                    st.plotly_chart(fig_re_beta, use_container_width=True)
+                    st.plotly_chart(fig_disc, use_container_width=True)
+                    transition_points, structure_types = analyze_complex_root_structure(np.linspace(beta_min, beta_max, beta_points), z_beta, z_a_beta, y_beta)
+                    if transition_points:
+                        st.subheader("Root Structure Transition Points")
+                        for i, beta in enumerate(transition_points):
+                            prev_type = structure_types[i]
+                            next_type = structure_types[i+1] if i+1 < len(structure_types) else "unknown"
+                            st.markdown(f"- At β = {beta:.6f}: Transition from {prev_type} roots to {next_type} roots")
+                    else:
+                        st.info("No transitions detected in root structure across this β range.")
+                    with st.expander("Analysis Explanation", expanded=False):
+                        st.markdown("""
+                        ### Interpreting the Plots
+
+                        - **Im{s} vs. β**: Shows how the imaginary parts of the roots change with β. When all curves are at Im{s}=0, all roots are real.
+                        - **Re{s} vs. β**: Shows how the real parts of the roots change with β.
+                        - **Discriminant Plot**: The cubic discriminant changes sign at points where the root structure changes.
+                          - When discriminant < 0: The cubic has one real root and two complex conjugate roots.
+                          - When discriminant > 0: The cubic has three distinct real roots.
+                          - When discriminant = 0: The cubic has multiple roots (at least two roots are equal).
+
+                        The vertical red dashed lines mark the transition points where the root structure changes.
+                        """)
+
+    with plot_tabs[2]:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            z_a_phase = st.number_input("z_a", value=1.0, key="z_a_phase")
+            y_phase = st.number_input("y", value=1.0, key="y_phase")
+            beta_min_phase = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_phase")
+            beta_max_phase = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_phase")
+            z_min_phase = st.number_input("z_min", value=-10.0, key="z_min_phase")
+            z_max_phase = st.number_input("z_max", value=10.0, key="z_max_phase")
+            with st.expander("Resolution Settings", expanded=False):
+                beta_steps_phase = st.slider("β grid points", min_value=20, max_value=200, value=100, step=20, key="beta_steps_phase")
+                z_steps_phase = st.slider("z grid points", min_value=20, max_value=200, value=100, step=20, key="z_steps_phase")
+        if st.button("Generate Phase Diagram", key="tab2_button_phase"):
+            with col2:
+                st.info("Generating phase diagram. This may take a while depending on resolution...")
+                fig_phase = generate_phase_diagram(z_a_phase, y_phase, beta_min_phase, beta_max_phase, z_min_phase, z_max_phase, beta_steps_phase, z_steps_phase)
+                if fig_phase is not None:
+                    st.plotly_chart(fig_phase, use_container_width=True)
+                    with st.expander("Phase Diagram Explanation", expanded=False):
+                        st.markdown("""
+                        ### Understanding the Phase Diagram
+
+                        This heatmap shows the regions in the (β, z) plane where:
+
+                        - **Red Regions**: The cubic equation has all real roots
+                        - **Blue Regions**: The cubic equation has one real root and two complex conjugate roots
+
+                        The boundaries between these regions represent values where the discriminant is zero,
+                        which are the exact same curves as the z*(β) boundaries in the first tab. This phase
+                        diagram provides a comprehensive view of the eigenvalue support structure.
+                        """)
+
+    with plot_tabs[3]:
+        st.subheader("Eigenvalue Distribution for B_n = S_n T_n")
+        with st.expander("Simulation Information", expanded=False):
+            st.markdown("""
+            This simulation generates the eigenvalue distribution of B_n as n→∞, where:
+            - B_n = (1/n)XX^T with X being a p×n matrix
+            - p/n → y as n→∞
+            - The diagonal entries of T_n follow distribution β·δ(z_a) + (1-β)·δ(1)
+            """)
+        col_eigen1, col_eigen2 = st.columns([1, 2])
+        with col_eigen1:
+            beta_eigen = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_eigen")
+            y_eigen = st.number_input("y", value=1.0, key="y_eigen")
+            z_a_eigen = st.number_input("z_a", value=1.0, key="z_a_eigen")
+            n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
+            sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
+            show_theoretical = st.checkbox("Show theoretical boundaries", value=True)
+            show_empirical_stats = st.checkbox("Show empirical statistics", value=True)
+        if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
+            with col_eigen2:
+                fig_eigen, eigenvalues = generate_eigenvalue_distribution(beta_eigen, y_eigen, z_a_eigen, n=n_samples, seed=sim_seed)
+                if show_theoretical:
+                    betas = np.array([beta_eigen])
+                    min_eig, max_eig = compute_eigenvalue_support_boundaries(z_a_eigen, y_eigen, betas, n_samples=n_samples, seeds=5)
+                    fig_eigen.add_vline(x=min_eig[0], line=dict(color="red", width=2, dash="dash"), annotation_text="Min theoretical", annotation_position="top right")
+                    fig_eigen.add_vline(x=max_eig[0], line=dict(color="red", width=2, dash="dash"), annotation_text="Max theoretical", annotation_position="top left")
+                st.plotly_chart(fig_eigen, use_container_width=True)
+                if show_theoretical and show_empirical_stats:
+                    empirical_min = eigenvalues.min()
+                    empirical_max = eigenvalues.max()
+                    st.markdown("### Comparison of Empirical vs Theoretical Bounds")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Theoretical Min", f"{min_eig[0]:.4f}")
+                        st.metric("Theoretical Max", f"{max_eig[0]:.4f}")
+                        st.metric("Theoretical Width", f"{max_eig[0] - min_eig[0]:.4f}")
+                    with col2:
+                        st.metric("Empirical Min", f"{empirical_min:.4f}")
+                        st.metric("Empirical Max", f"{empirical_max:.4f}")
+                        st.metric("Empirical Width", f"{empirical_max - empirical_min:.4f}")
+                    with col3:
+                        st.metric("Min Difference", f"{empirical_min - min_eig[0]:.4f}")
+                        st.metric("Max Difference", f"{empirical_max - max_eig[0]:.4f}")
+                        st.metric("Width Difference", f"{(empirical_max - empirical_min) - (max_eig[0] - min_eig[0]):.4f}")
+                if show_empirical_stats:
+                    st.markdown("### Eigenvalue Statistics")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Mean", f"{np.mean(eigenvalues):.4f}")
+                        st.metric("Median", f"{np.median(eigenvalues):.4f}")
+                    with col2:
+                        st.metric("Standard Deviation", f"{np.std(eigenvalues):.4f}")
+                        st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.4f}")
 # Add footer with instructions
 st.markdown("""
 <div class="footer">
