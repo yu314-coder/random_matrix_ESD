@@ -17,7 +17,7 @@ from sympy import symbols, solve, I, re, im, Poly, simplify, N, mpmath
 # Set page config with wider layout
 st.set_page_config(
     page_title="Matrix Analysis Dashboard",
-    page_icon="ð",
+    page_icon="Ã°ÂÂÂ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -388,7 +388,7 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
         }
         
         if (std::abs(delta0) < zero_threshold) {
-            // Delta0 â 0: One double root and one simple root
+            // Delta0 Ã¢ÂÂ 0: One double root and one simple root
             double simple = std::cbrt(-delta1);
             double doubleRoot = -simple/2 - shift;
             double simpleRoot = simple - shift;
@@ -716,21 +716,21 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
               << ", theory_tolerance = " << theory_tolerance << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
-    // âââ Beta range parameters ââââââââââââââââââââââââââââââââââââââââ
+    // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Beta range parameters Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
     const int num_beta_points = fineness; // Controlled by fineness parameter
     std::vector<double> beta_values(num_beta_points);
     for (int i = 0; i < num_beta_points; ++i) {
         beta_values[i] = static_cast<double>(i) / (num_beta_points - 1);
     }
     
-    // âââ Storage for results ââââââââââââââââââââââââââââââââââââââââ
+    // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Storage for results Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
     std::vector<double> max_eigenvalues(num_beta_points);
     std::vector<double> min_eigenvalues(num_beta_points);
     std::vector<double> theoretical_max_values(num_beta_points);
     std::vector<double> theoretical_min_values(num_beta_points);
     
     try {
-        // âââ RandomâGaussian X and S_n ââââââââââââââââââââââââââââââââ
+        // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ RandomÃ¢ÂÂGaussian X and S_n Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
         std::random_device rd;
         std::mt19937_64 rng{rd()};
         std::normal_distribution<double> norm(0.0, 1.0);
@@ -740,7 +740,7 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
             for(int j = 0; j < n; ++j)
                 X.at<double>(i,j) = norm(rng);
         
-        // âââ Process each beta value âââââââââââââââââââââââââââââââââ
+        // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Process each beta value Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
         for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
             double beta = beta_values[beta_idx];
             
@@ -748,7 +748,7 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
             theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
             theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
             
-            // âââ Build T_n matrix ââââââââââââââââââââââââââââââââââ
+            // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Build T_n matrix Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
             int k = static_cast<int>(std::floor(beta * p));
             std::vector<double> diags(p, 1.0);
             std::fill_n(diags.begin(), k, a);
@@ -759,10 +759,10 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
                 T_n.at<double>(i,i) = diags[i];
             }
             
-            // âââ Form B_n = (1/n) * X * T_n * X^T ââââââââââââ
+            // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Form B_n = (1/n) * X * T_n * X^T Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
             cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
             
-            // âââ Compute eigenvalues of B ââââââââââââââââââââââââââââ
+            // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Compute eigenvalues of B Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
             cv::Mat eigVals;
             cv::eigen(B, eigVals);
             std::vector<double> eigs(n);  
@@ -820,7 +820,7 @@ int main(int argc, char* argv[]) {
     
     try {
         if (mode == "eigenvalues") {
-            // âââ Eigenvalue analysis mode âââââââââââââââââââââââââââââââââââââââââââ
+            // Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Eigenvalue analysis mode Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
             if (argc != 10) {
                 std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
                 std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
@@ -857,13 +857,14 @@ int main(int argc, char* argv[]) {
 
 # Compile the C++ code with the right OpenCV libraries
 st.sidebar.title("Dashboard Settings")
-need_compile = not os.path.exists(executable) or st.sidebar.button("ð Recompile C++ Code")
+need_compile = not os.path.exists(executable) or st.sidebar.button("Ã°ÂÂÂ Recompile C++ Code")
 
 if need_compile:
     with st.sidebar:
         with st.spinner("Compiling C++ code..."):
             # Try to detect the OpenCV installation
-            opencv_detection_cmd = ["pkg-config", "--cflags", "--libs", "opencv4"]
+            opencv_detection_cmd = ["pk
+g-config", "--cflags", "--libs", "opencv4"]
             opencv_found, opencv_flags, _ = run_command(opencv_detection_cmd, show_output=False)
             
             compile_commands = []
@@ -891,11 +892,11 @@ if need_compile:
                 
                 if success:
                     compiled = True
-                    st.success(f"â Successfully compiled with: {cmd}")
+                    st.success(f"Ã¢ÂÂ Successfully compiled with: {cmd}")
                     break
             
             if not compiled:
-                st.error("â All compilation attempts failed.")
+                st.error("Ã¢ÂÂ All compilation attempts failed.")
                 with st.expander("Compilation Details"):
                     st.code(compile_output)
                 st.stop()
@@ -904,7 +905,7 @@ if need_compile:
             if platform.system() != "Windows":
                 os.chmod(executable, 0o755)
             
-            st.success("â C++ code compiled successfully!")
+            st.success("Ã¢ÂÂ C++ code compiled successfully!")
 
 # Set higher precision for mpmath
 mpmath.mp.dps = 100  # 100 digits of precision
@@ -1042,7 +1043,7 @@ def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_callback=Non
             progress_callback(i / num_points)
             
         # Coefficients for the cubic equation:
-        # zasÂ³ + [z(a+1)+a(1-y)]sÂ² + [z+(a+1)-y-yÎ²(a-1)]s + 1 = 0
+        # zasÃÂ³ + [z(a+1)+a(1-y)]sÃÂ² + [z+(a+1)-y-yÃÂ²(a-1)]s + 1 = 0
         coef_a = z * a
         coef_b = z * (a + 1) + a * (1 - y)
         coef_c = z + (a + 1) - y - y * beta * (a - 1)
@@ -1116,8 +1117,8 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
         rows=2, 
         cols=1,
         subplot_titles=(
-            f"Imaginary Parts of Roots: a={cubic_a}, y={cubic_y}, Î²={cubic_beta}",
-            f"Real Parts of Roots: a={cubic_a}, y={cubic_y}, Î²={cubic_beta}"
+            f"Imaginary Parts of Roots: a={cubic_a}, y={cubic_y}, ÃÂ²={cubic_beta}",
+            f"Real Parts of Roots: a={cubic_a}, y={cubic_y}, ÃÂ²={cubic_beta}"
         ),
         vertical_spacing=0.15,
         specs=[[{"type": "scatter"}], [{"type": "scatter"}]]
@@ -1129,9 +1130,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=ims_values1,
             mode='lines',
-            name='Im(sâ)',
+            name='Im(sÃ¢ÂÂ)',
             line=dict(color='rgb(239, 85, 59)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(sâ): %{y:.6f}<extra>Root 1</extra>'
+            hovertemplate='z: %{x:.4f}<br>Im(sÃ¢ÂÂ): %{y:.6f}<extra>Root 1</extra>'
         ),
         row=1, col=1
     )
@@ -1141,9 +1142,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=ims_values2,
             mode='lines',
-            name='Im(sâ)',
+            name='Im(sÃ¢ÂÂ)',
             line=dict(color='rgb(0, 129, 201)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(sâ): %{y:.6f}<extra>Root 2</extra>'
+            hovertemplate='z: %{x:.4f}<br>Im(sÃ¢ÂÂ): %{y:.6f}<extra>Root 2</extra>'
         ),
         row=1, col=1
     )
@@ -1153,9 +1154,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=ims_values3,
             mode='lines',
-            name='Im(sâ)',
+            name='Im(sÃ¢ÂÂ)',
             line=dict(color='rgb(0, 176, 80)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(sâ): %{y:.6f}<extra>Root 3</extra>'
+            hovertemplate='z: %{x:.4f}<br>Im(sÃ¢ÂÂ): %{y:.6f}<extra>Root 3</extra>'
         ),
         row=1, col=1
     )
@@ -1166,9 +1167,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=real_values1,
             mode='lines',
-            name='Re(sâ)',
+            name='Re(sÃ¢ÂÂ)',
             line=dict(color='rgb(239, 85, 59)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(sâ): %{y:.6f}<extra>Root 1</extra>'
+            hovertemplate='z: %{x:.4f}<br>Re(sÃ¢ÂÂ): %{y:.6f}<extra>Root 1</extra>'
         ),
         row=2, col=1
     )
@@ -1178,9 +1179,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=real_values2,
             mode='lines',
-            name='Re(sâ)',
+            name='Re(sÃ¢ÂÂ)',
             line=dict(color='rgb(0, 129, 201)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(sâ): %{y:.6f}<extra>Root 2</extra>'
+            hovertemplate='z: %{x:.4f}<br>Re(sÃ¢ÂÂ): %{y:.6f}<extra>Root 2</extra>'
         ),
         row=2, col=1
     )
@@ -1190,9 +1191,9 @@ def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
             x=z_values, 
             y=real_values3,
             mode='lines',
-            name='Re(sâ)',
+            name='Re(sÃ¢ÂÂ)',
             line=dict(color='rgb(0, 176, 80)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(sâ): %{y:.6f}<extra>Root 3</extra>'
+            hovertemplate='z: %{x:.4f}<br>Re(sÃ¢ÂÂ): %{y:.6f}<extra>Root 3</extra>'
         ),
         row=2, col=1
     )
@@ -1482,7 +1483,7 @@ def create_complex_plane_visualization(result, z_idx):
             symbol='circle',
             line=dict(width=1, color='black')
         ),
-        text=['sâ', 'sâ', 'sâ'],
+        text=['sÃ¢ÂÂ', 'sÃ¢ÂÂ', 'sÃ¢ÂÂ'],
         textposition="top center",
         name='Roots'
     ))
@@ -1614,7 +1615,7 @@ with st.sidebar.expander("Theme & Appearance"):
         color_theory_min = 'rgb(180, 30, 180)'
 
 # Create tabs for different analyses
-tab1, tab2 = st.tabs(["ð Eigenvalue Analysis (C++)", "ð Im(s) vs z Analysis (SymPy)"])
+tab1, tab2 = st.tabs(["Ã°ÂÂÂ Eigenvalue Analysis (C++)", "Ã°ÂÂÂ Im(s) vs z Analysis (SymPy)"])
 
 # Tab 1: Eigenvalue Analysis (KEEP UNCHANGED from original)
 with tab1:
@@ -1648,7 +1649,7 @@ with tab1:
             max_value=500, 
             value=100, 
             step=10,
-            help="Number of points to calculate along the Î² axis (0 to 1)",
+            help="Number of points to calculate along the ÃÂ² axis (0 to 1)",
             key="eig_fineness"
         )
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1831,7 +1832,7 @@ with tab1:
                                     color=color_max,
                                     line=dict(color='white', width=1)
                                 ),
-                                hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
+                                hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
                             ))
                             
                             fig.add_trace(go.Scatter(
@@ -1846,7 +1847,7 @@ with tab1:
                                     color=color_min,
                                     line=dict(color='white', width=1)
                                 ),
-                                hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
+                                hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
                             ))
                             
                             fig.add_trace(go.Scatter(
@@ -1861,7 +1862,7 @@ with tab1:
                                     color=color_theory_max,
                                     line=dict(color='white', width=1)
                                 ),
-                                hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
+                                hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
                             ))
                             
                             fig.add_trace(go.Scatter(
@@ -1876,7 +1877,7 @@ with tab1:
                                     color=color_theory_min,
                                     line=dict(color='white', width=1)
                                 ),
-                                hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
+                                hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
                             ))
                             
                             # Configure layout for better appearance
@@ -1890,7 +1891,7 @@ with tab1:
                                     'yanchor': 'top'
                                 },
                                 xaxis={
-                                    'title': {'text': 'Î² Parameter', 'font': {'size': 18, 'color': '#424242'}},
+                                    'title': {'text': 'ÃÂ² Parameter', 'font': {'size': 18, 'color': '#424242'}},
                                     'tickfont': {'size': 14},
                                     'gridcolor': 'rgba(220, 220, 220, 0.5)',
                                     'showgrid': True
@@ -1986,7 +1987,7 @@ with tab1:
                             color=color_max,
                             line=dict(color='white', width=1)
                         ),
-                        hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
+                        hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
                     ))
                     
                     fig.add_trace(go.Scatter(
@@ -2001,7 +2002,7 @@ with tab1:
                             color=color_min,
                             line=dict(color='white', width=1)
                         ),
-                        hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
+                        hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
                     ))
                     
                     fig.add_trace(go.Scatter(
@@ -2016,7 +2017,7 @@ with tab1:
                             color=color_theory_max,
                             line=dict(color='white', width=1)
                         ),
-                        hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
+                        hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
                     ))
                     
                     fig.add_trace(go.Scatter(
@@ -2031,7 +2032,7 @@ with tab1:
                             color=color_theory_min,
                             line=dict(color='white', width=1)
                         ),
-                        hovertemplate='Î²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
+                        hovertemplate='ÃÂ²: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
                     ))
                     
                     # Configure layout for better appearance
@@ -2045,7 +2046,7 @@ with tab1:
                             'yanchor': 'top'
                         },
                         xaxis={
-                            'title': {'text': 'Î² Parameter', 'font': {'size': 18, 'color': '#424242'}},
+                            'title': {'text': 'ÃÂ² Parameter', 'font': {'size': 18, 'color': '#424242'}},
                             'tickfont': {'size': 14},
                             'gridcolor': 'rgba(220, 220, 220, 0.5)',
                             'showgrid': True
@@ -2074,10 +2075,10 @@ with tab1:
                     st.info("This is the previous analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
                     
                 except Exception as e:
-                    st.info("ð Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
+                    st.info("Ã°ÂÂÂ Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
             else:
                 # Show placeholder
-                st.info("ð Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
+                st.info("Ã°ÂÂÂ Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -2097,7 +2098,7 @@ with tab2:
                                 help="Parameter a > 1", key="cubic_a")
         cubic_y = st.number_input("Value for y", min_value=0.1, max_value=10.0, value=1.0, step=0.1,
                                  help="Parameter y > 0", key="cubic_y")
-        cubic_beta = st.number_input("Value for Î²", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+        cubic_beta = st.number_input("Value for ÃÂ²", min_value=0.0, max_value=1.0, value=0.5, step=0.05,
                                    help="Value between 0 and 1", key="cubic_beta")
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -2307,11 +2308,11 @@ with tab2:
                         st.plotly_chart(complex_fig, use_container_width=True)
                     
                 except Exception as e:
-                    st.info("ð Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
+                    st.info("Ã°ÂÂÂ Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
                     st.error(f"Error loading previous data: {str(e)}")
             else:
                 # Show placeholder
-                st.info("ð Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
+                st.info("Ã°ÂÂÂ Set parameters and click 'Generate Im(s) vs z Analysis' to create a visualization.")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
