@@ -12,7 +12,8 @@ import io
 import sys
 import tempfile
 import platform
-from sympy import symbols, solve, I, re, im, Poly, simplify, N, mpmath
+from sympy import symbols, solve, I, re, im, Poly, simplify, N
+import mpmath
 
 # Set page config with wider layout
 st.set_page_config(
