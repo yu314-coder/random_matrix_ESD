@@ -246,7 +246,7 @@ def compute_quartic_tianyuan(a, y, beta):
 
     D = 3 * c3**2 - 8 * c4 * c2
     E = -c3**3 + 4 * c4 * c3 * c2 - 8 * (c4**2) * c1
-    F = 3 * c3**4 + 16 * (c4**2) * (c2**2) - 16 * c4 * (c3**2) * c2 + 16 * (c4**2) * c3 * c1 - 64 * (c4**3) * c0
+    F = 3 * c3**2 + 16 * (c4**2) * (c2**2) - 16 * c4 * (c3**2) * c2 + 16 * (c4**2) * c3 * c1 - 64 * (c4**3) * c0
     A = D**2 - 3 * F
     B = D * F - 9 * (E**2)
     C = F**2 - 3 * D * (E**2)
@@ -303,6 +303,10 @@ def display_quartic_summary(quartic, header):
             else:
                 sign = '+' if imag >= 0 else '-'
                 st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
+    st.markdown(
+        "For more information on the 天衍 formulae, visit the "
+        "[public reference](https://zhuanlan.zhihu.com/p/677634589)."
+    )
     st.markdown('---')
 
 # Check if C++ source file exists
