@@ -2496,7 +2496,7 @@ with tab2:
                                 
                                 # Display the plot
                                 st.plotly_chart(fig, use_container_width=True)
-                                
+
                                 # Add statistics
                                 st.markdown('<div class="stats-box">', unsafe_allow_html=True)
                                 col1, col2, col3, col4 = st.columns(4)
@@ -2509,7 +2509,21 @@ with tab2:
                                 with col4:
                                     st.metric("Std Dev", f"{eigenvalues.std():.4f}")
                                 st.markdown('</div>', unsafe_allow_html=True)
-                                
+
+                                # Show roots and δ below statistics
+                                st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                                st.markdown("**Quartic Roots**")
+                                for i, root in enumerate(quartic['roots'], 1):
+                                    real = float(np.real(root))
+                                    imag = float(np.imag(root))
+                                    if abs(imag) < 1e-12:
+                                        st.text(f"t{i} = {real:.6f}")
+                                    else:
+                                        sign = '+' if imag >= 0 else '-'
+                                        st.text(f"t{i} = {real:.6f} {sign} {abs(imag):.6f}i")
+                                st.text(f"δ = {quartic['tianyuan_values']['delta']:.6f}")
+                                st.markdown('</div>', unsafe_allow_html=True)
+
                                 # Add explanation
                                 with st.expander("Understanding the Results", expanded=False):
                                     st.markdown(f"""
