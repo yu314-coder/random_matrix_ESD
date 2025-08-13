@@ -2437,13 +2437,20 @@ with tab2:
                                 # Create KDE
                                 kde = gaussian_kde(eigenvalues)
                                 kde.set_bandwidth(kde_bandwidth)
-                                
+
                                 # Evaluate KDE
                                 x_min, x_max = eigenvalues.min(), eigenvalues.max()
                                 x_range = x_max - x_min
                                 x_eval = np.linspace(x_min - 0.1 * x_range, x_max + 0.1 * x_range, kde_points)
                                 kde_vals = kde(x_eval)
-                                
+
+                                # Determine theoretical min/max from real roots
+                                real_roots = sorted(
+                                    float(np.real(r)) for r in quartic["roots"] if abs(np.imag(r)) < 1e-8
+                                )
+                                t_min = real_roots[0] if real_roots else None
+                                t_max = real_roots[-1] if real_roots else None
+
                                 # Create the plot
                                 fig = go.Figure()
                                 
@@ -2465,6 +2472,24 @@ with tab2:
                                     line=dict(color='red', width=3),
                                     hovertemplate='Eigenvalue: %{x:.4f}<br>Density: %{y:.4f}<extra></extra>'
                                 ))
+
+                                # Mark theoretical min and max
+                                if t_min is not None:
+                                    fig.add_vline(
+                                        x=t_min,
+                                        line_dash='dash',
+                                        line_color='green',
+                                        annotation_text='t_min',
+                                        annotation_position='top left'
+                                    )
+                                if t_max is not None:
+                                    fig.add_vline(
+                                        x=t_max,
+                                        line_dash='dash',
+                                        line_color='green',
+                                        annotation_text='t_max',
+                                        annotation_position='top right'
+                                    )
                                 
                                 # Update layout
                                 fig.update_layout(
@@ -2586,20 +2611,27 @@ with tab2:
                     
                     quartic = compute_quartic_tianyuan(parameters['a'], parameters['y'], parameters['beta'])
                     display_quartic_summary(quartic, "Quartic Equation Analysis (Previous Result)")
-                    
+
                     if len(eigenvalues) > 1:
                         # Create KDE with default bandwidth
                         kde = gaussian_kde(eigenvalues)
-                        
+
                         # Evaluate KDE
                         x_min, x_max = eigenvalues.min(), eigenvalues.max()
                         x_range = x_max - x_min
                         x_eval = np.linspace(x_min - 0.1 * x_range, x_max + 0.1 * x_range, 500)
                         kde_vals = kde(x_eval)
-                        
+
+                        # Determine theoretical min/max from real roots
+                        real_roots = sorted(
+                            float(np.real(r)) for r in quartic["roots"] if abs(np.imag(r)) < 1e-8
+                        )
+                        t_min = real_roots[0] if real_roots else None
+                        t_max = real_roots[-1] if real_roots else None
+
                         # Create the plot
                         fig = go.Figure()
-                        
+
                         # Add histogram
                         fig.add_trace(go.Histogram(
                             x=eigenvalues,
@@ -2608,7 +2640,7 @@ with tab2:
                             marker=dict(color='lightblue', opacity=0.6),
                             nbinsx=30
                         ))
-                        
+
                         # Add KDE curve
                         fig.add_trace(go.Scatter(
                             x=x_eval,
@@ -2617,6 +2649,24 @@ with tab2:
                             name='KDE',
                             line=dict(color='red', width=3)
                         ))
+
+                        # Mark theoretical min and max
+                        if t_min is not None:
+                            fig.add_vline(
+                                x=t_min,
+                                line_dash='dash',
+                                line_color='green',
+                                annotation_text='t_min',
+                                annotation_position='top left'
+                            )
+                        if t_max is not None:
+                            fig.add_vline(
+                                x=t_max,
+                                line_dash='dash',
+                                line_color='green',
+                                annotation_text='t_max',
+                                annotation_position='top right'
+                            )
                         
                         # Update layout
                         fig.update_layout(
