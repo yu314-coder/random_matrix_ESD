@@ -273,36 +273,36 @@ def compute_quartic_tianyuan(a, y, beta):
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
     st.markdown(f"### {header}")
-    st.markdown("**Equation:** $c_4t^4 + c_3t^3 + c_2t^2 + c_1t + c_0 = 0$")
+    st.markdown("**Equation:** $c_4 t^4 + c_3 t^3 + c_2 t^2 + c_1 t + c_0 = 0$")
     with st.expander("📊 Quartic Results Summary", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**Coefficients:**")
-            st.text(f"c₄ = {quartic['coefficients']['c4']:.4f}")
-            st.text(f"c₃ = {quartic['coefficients']['c3']:.4f}")
-            st.text(f"c₂ = {quartic['coefficients']['c2']:.4f}")
-            st.text(f"c₁ = {quartic['coefficients']['c1']:.4f}")
-            st.text(f"c₀ = {quartic['coefficients']['c0']:.4f}")
+            st.latex(f"c_4 = {quartic['coefficients']['c4']:.4f}")
+            st.latex(f"c_3 = {quartic['coefficients']['c3']:.4f}")
+            st.latex(f"c_2 = {quartic['coefficients']['c2']:.4f}")
+            st.latex(f"c_1 = {quartic['coefficients']['c1']:.4f}")
+            st.latex(f"c_0 = {quartic['coefficients']['c0']:.4f}")
         with col2:
             st.markdown("**天衍 Values:**")
             ty = quartic['tianyuan_values']
-            st.text(f"D = {ty['D']:.4f}")
-            st.text(f"E = {ty['E']:.4f}")
-            st.text(f"F = {ty['F']:.4f}")
-            st.text(f"A = {ty['A']:.4f}")
-            st.text(f"B = {ty['B']:.4f}")
-            st.text(f"C = {ty['C']:.4f}")
-            st.text(f"Δ = {ty['Delta']:.6f}")
-            st.text(f"δ = {ty['delta']:.6f}")
+            st.latex(f"D = {ty['D']:.4f}")
+            st.latex(f"E = {ty['E']:.4f}")
+            st.latex(f"F = {ty['F']:.4f}")
+            st.latex(f"A = {ty['A']:.4f}")
+            st.latex(f"B = {ty['B']:.4f}")
+            st.latex(f"C = {ty['C']:.4f}")
+            st.latex(f"\\Delta = {ty['Delta']:.6f}")
+            st.latex(f"\\Delta_{0} = {ty['delta']:.6f}")
         st.markdown("**Roots:**")
         for i, root in enumerate(quartic['roots'], 1):
             real = float(np.real(root))
             imag = float(np.imag(root))
             if abs(imag) < 1e-12:
-                st.text(f"t{i} = {real:.6f}")
+                st.latex(f"t_{{{i}}} = {real:.6f}")
             else:
                 sign = '+' if imag >= 0 else '-'
-                st.text(f"t{i} = {real:.6f} {sign} {abs(imag):.6f}i")
+                st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
     st.markdown('---')
 
 # Check if C++ source file exists
@@ -2510,18 +2510,18 @@ with tab2:
                                     st.metric("Std Dev", f"{eigenvalues.std():.4f}")
                                 st.markdown('</div>', unsafe_allow_html=True)
 
-                                # Show roots and δ below statistics
+                                # Show roots and Δ below statistics
                                 st.markdown('<div class="stats-box">', unsafe_allow_html=True)
                                 st.markdown("**Quartic Roots**")
                                 for i, root in enumerate(quartic['roots'], 1):
                                     real = float(np.real(root))
                                     imag = float(np.imag(root))
                                     if abs(imag) < 1e-12:
-                                        st.text(f"t{i} = {real:.6f}")
+                                        st.latex(f"t_{{{i}}} = {real:.6f}")
                                     else:
                                         sign = '+' if imag >= 0 else '-'
-                                        st.text(f"t{i} = {real:.6f} {sign} {abs(imag):.6f}i")
-                                st.text(f"δ = {quartic['tianyuan_values']['delta']:.6f}")
+                                        st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
+                                st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['delta']:.6f}")
                                 st.markdown('</div>', unsafe_allow_html=True)
 
                                 # Add explanation
