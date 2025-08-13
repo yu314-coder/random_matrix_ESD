@@ -270,28 +270,32 @@ def compute_quartic_tianyuan(a, y, beta):
         "roots": roots
     }
 
-def compute_theoretical_bounds(a, y, beta):
-    """Compute theoretical eigenvalue bounds from the given rational expression."""
+def compute_theoretical_bounds(a, y, beta, points=1000):
+    """Compute theoretical eigenvalue bounds via numeric sampling."""
     t = sp.symbols('t', real=True)
-    expr = (y*beta*(a-1)*t + (a*t + 1)*((y-1)*t - 1)) / ((a*t + 1)*(t**2 + t))
+    expr = (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / ((a * t + 1) * (t**2 + t))
+    expr_func = sp.lambdify(t, expr, 'numpy')
+
+    # Determine positive range upper bound using derivative roots
     dexpr = sp.diff(expr, t)
     numerator = sp.together(sp.simplify(dexpr)).as_numer_denom()[0]
     poly = sp.Poly(sp.expand(numerator), t)
     coeffs = [float(c) for c in poly.all_coeffs()]
     roots = np.roots(coeffs)
-    expr_func = sp.lambdify(t, expr, 'numpy')
-    min_val = None
-    max_val = None
-    for r in roots:
-        if abs(np.imag(r)) < 1e-8:
-            r_real = float(np.real(r))
-            val = float(expr_func(r_real))
-            if -1/a < r_real < 0:
-                if min_val is None or val < min_val:
-                    min_val = val
-            if r_real > 0:
-                if max_val is None or val > max_val:
-                    max_val = val
+    positive_roots = [float(np.real(r)) for r in roots if abs(np.imag(r)) < 1e-8 and np.real(r) > 0]
+    t_upper = max(10.0, 2 * max(positive_roots)) if positive_roots else 10.0
+
+    eps = 1e-6
+    t_neg = np.linspace(-1 / a + eps, -eps, int(points))
+    vals_neg = expr_func(t_neg)
+    vals_neg = vals_neg[np.isfinite(vals_neg)]
+    min_val = float(np.min(vals_neg)) if vals_neg.size > 0 else None
+
+    t_pos = np.linspace(eps, t_upper, int(points))
+    vals_pos = expr_func(t_pos)
+    vals_pos = vals_pos[np.isfinite(vals_pos)]
+    max_val = float(np.max(vals_pos)) if vals_pos.size > 0 else None
+
     return min_val, max_val
 
 def display_quartic_summary(quartic, header):
@@ -2342,7 +2346,15 @@ with tab2:
                                      help="Bandwidth for kernel density estimation")
             kde_points = st.slider("KDE Resolution", min_value=100, max_value=1000, value=500, step=50,
                                   help="Number of points for KDE evaluation")
-            timeout_kde = st.number_input("Timeout (seconds)", min_value=30, max_value=1800, value=180, 
+            bound_points = st.slider(
+                "Bound Search Points",
+                min_value=100,
+                max_value=100000,
+                value=1000,
+                step=100,
+                help="Sampling points for theoretical bound search",
+            )
+            timeout_kde = st.number_input("Timeout (seconds)", min_value=30, max_value=1800, value=180,
                                          key="timeout_kde")
         
         # Generate button
@@ -2470,7 +2482,7 @@ with tab2:
 
                                 # Determine theoretical bounds from analytic expression
                                 bound_min, bound_max = compute_theoretical_bounds(
-                                    parameters['a'], parameters['y'], parameters['beta']
+                                    parameters['a'], parameters['y'], parameters['beta'], bound_points
                                 )
 
                                 # Create the plot
@@ -2651,7 +2663,7 @@ with tab2:
 
                         # Determine theoretical bounds from analytic expression
                         bound_min, bound_max = compute_theoretical_bounds(
-                            parameters['a'], parameters['y'], parameters['beta']
+                            parameters['a'], parameters['y'], parameters['beta'], bound_points
                         )
 
                         # Create the plot
