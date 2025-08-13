@@ -246,18 +246,12 @@ def compute_quartic_tianyuan(a, y, beta):
 
     D = 3 * c3**2 - 8 * c4 * c2
     E = -c3**3 + 4 * c4 * c3 * c2 - 8 * (c4**2) * c1
-    F = 3 * c3**2 + 16 * (c4**2) * (c2**2) - 16 * c4 * (c3**2) * c2 + 16 * (c4**2) * c3 * c1 - 64 * (c4**3) * c0
+    F = 3 * c3**4 + 16 * (c4**2) * (c2**2) - 16 * c4 * (c3**2) * c2 + 16 * (c4**2) * c3 * c1 - 64 * (c4**3) * c0
     A = D**2 - 3 * F
     B = D * F - 9 * (E**2)
     C = F**2 - 3 * D * (E**2)
     Delta = B**2 - 4 * A * C
-    delta = (256 * c4**3 * c0**3 - 192 * c4**2 * c3 * c1 * c0**2 - 128 * c4**2 * c2**2 * c0**2
-             + 144 * c4**2 * c2 * c1**2 * c0 - 27 * c4**2 * c1**4 + 144 * c4 * c3**2 * c2 * c0**2
-             - 6 * c4 * c3**2 * c1**2 * c0 - 80 * c4 * c3 * c2**2 * c1 * c0 + 18 * c4 * c3 * c2 * c1**3
-             + 16 * c4 * c2**4 * c0 - 4 * c4 * c2**3 * c1**2 - 27 * c3**4 * c0**2
-             + 18 * c3**3 * c2 * c1 * c0 - 4 * c3**3 * c1**3 - 4 * c3**2 * c2**3 * c0
-             + c3**2 * c2**2 * c1**2)
-
+    delta=Delta 
     roots = np.roots([c4, c3, c2, c1, c0])
 
     return {
@@ -269,6 +263,49 @@ def compute_quartic_tianyuan(a, y, beta):
         },
         "roots": roots
     }
+
+def compute_theoretical_bounds(a, y, beta, points=1000):
+    """Compute theoretical eigenvalue bounds via numeric sampling."""
+    t = sp.symbols('t', real=True)
+    expr = (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / ((a * t + 1) * (t**2 + t))
+    expr_func = sp.lambdify(t, expr, 'numpy')
+
+    # Determine positive range upper bound using derivative roots
+    dexpr = sp.diff(expr, t)
+    numerator = sp.together(sp.simplify(dexpr)).as_numer_denom()[0]
+    poly = sp.Poly(sp.expand(numerator), t)
+    coeffs = [float(c) for c in poly.all_coeffs()]
+    roots = np.roots(coeffs)
+    positive_roots = [float(np.real(r)) for r in roots if abs(np.imag(r)) < 1e-8 and np.real(r) > 0]
+    t_upper = max(10.0, 2 * max(positive_roots)) if positive_roots else 10.0
+
+    eps = 1e-6
+    t_neg = np.linspace(-1 / a + eps, -eps, int(points))
+    vals_neg = expr_func(t_neg)
+    vals_neg = vals_neg[np.isfinite(vals_neg)]
+    min_val = float(np.min(vals_neg)) if vals_neg.size > 0 else None
+
+    t_pos = np.linspace(eps, t_upper, int(points))
+    vals_pos = expr_func(t_pos)
+    vals_pos = vals_pos[np.isfinite(vals_pos)]
+    max_val = float(np.max(vals_pos)) if vals_pos.size > 0 else None
+
+    return min_val, max_val
+
+def compute_g_values(roots, a, y, beta):
+    """Evaluate g(t) for quartic roots and return real values."""
+    t = sp.symbols('t')
+    g_expr = (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / ((a * t + 1) * (t**2 + t))
+    g_func = sp.lambdify(t, g_expr, 'numpy')
+    results = []
+    for i, root in enumerate(roots, 1):
+        try:
+            val = g_func(root)
+            if np.isfinite(val) and abs(np.imag(val)) < 1e-12:
+                results.append((i, float(np.real(val))))
+        except Exception:
+            continue
+    return results
 
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
@@ -293,7 +330,7 @@ def display_quartic_summary(quartic, header):
             st.latex(f"B = {ty['B']:.4f}")
             st.latex(f"C = {ty['C']:.4f}")
             st.latex(f"\\Delta = {ty['Delta']:.6f}")
-            st.latex(f"\\Delta_{0} = {ty['delta']:.6f}")
+            st.latex(f"\\Delta_{0} = {ty['Delta']:.6f}")
         st.markdown("**Roots:**")
         for i, root in enumerate(quartic['roots'], 1):
             real = float(np.real(root))
@@ -2303,9 +2340,9 @@ with tab2:
         
         st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
         st.markdown("### Matrix Dimensions")
-        n_kde = st.number_input("n (samples)", min_value=50, max_value=2000, value=500, step=50, 
+        n_kde = st.number_input("n (samples)", min_value=50, max_value=200000, value=500, step=50, 
                                help="Number of samples", key="n_kde")
-        p_kde = st.number_input("p (dimensions)", min_value=50, max_value=2000, value=200, step=50, 
+        p_kde = st.number_input("p (dimensions)", min_value=50, max_value=200000, value=200, step=50, 
                                help="Number of dimensions", key="p_kde")
         
         # Automatically calculate and display y
@@ -2318,7 +2355,15 @@ with tab2:
                                      help="Bandwidth for kernel density estimation")
             kde_points = st.slider("KDE Resolution", min_value=100, max_value=1000, value=500, step=50,
                                   help="Number of points for KDE evaluation")
-            timeout_kde = st.number_input("Timeout (seconds)", min_value=30, max_value=1800, value=180, 
+            bound_points = st.slider(
+                "Bound Search Points",
+                min_value=100,
+                max_value=100000,
+                value=1000,
+                step=100,
+                help="Sampling points for theoretical bound search",
+            )
+            timeout_kde = st.number_input("Timeout (seconds)", min_value=30, max_value=1800, value=180,
                                          key="timeout_kde")
         
         # Generate button
@@ -2437,13 +2482,21 @@ with tab2:
                                 # Create KDE
                                 kde = gaussian_kde(eigenvalues)
                                 kde.set_bandwidth(kde_bandwidth)
-                                
+
                                 # Evaluate KDE
                                 x_min, x_max = eigenvalues.min(), eigenvalues.max()
                                 x_range = x_max - x_min
                                 x_eval = np.linspace(x_min - 0.1 * x_range, x_max + 0.1 * x_range, kde_points)
                                 kde_vals = kde(x_eval)
-                                
+
+                                # Determine theoretical bounds from analytic expression
+                                bound_min, bound_max = compute_theoretical_bounds(
+                                    parameters['a'], parameters['y'], parameters['beta'], bound_points
+                                )
+                                g_values = compute_g_values(
+                                    quartic['roots'], parameters['a'], parameters['y'], parameters['beta']
+                                )
+
                                 # Create the plot
                                 fig = go.Figure()
                                 
@@ -2465,6 +2518,32 @@ with tab2:
                                     line=dict(color='red', width=3),
                                     hovertemplate='Eigenvalue: %{x:.4f}<br>Density: %{y:.4f}<extra></extra>'
                                 ))
+
+                                # Mark theoretical bounds
+                                if bound_min is not None:
+                                    fig.add_vline(
+                                        x=bound_min,
+                                        line_dash='dash',
+                                        line_color='green',
+                                        annotation_text='min',
+                                        annotation_position='top left'
+                                    )
+                                if bound_max is not None:
+                                    fig.add_vline(
+                                        x=bound_max,
+                                        line_dash='dash',
+                                        line_color='green',
+                                        annotation_text='max',
+                                        annotation_position='top right'
+                                    )
+                                for idx, g_val in g_values:
+                                    fig.add_vline(
+                                        x=g_val,
+                                        line_dash='dot',
+                                        line_color='purple',
+                                        annotation_text=f'g(t_{idx})',
+                                        annotation_position='bottom'
+                                    )
                                 
                                 # Update layout
                                 fig.update_layout(
@@ -2525,7 +2604,16 @@ with tab2:
                                     else:
                                         sign = '+' if imag >= 0 else '-'
                                         st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
-                                st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['delta']:.6f}")
+                                if g_values:
+                                    st.markdown("**g(t_i) (real)**")
+                                    for idx, val in g_values:
+                                        st.latex(f"g(t_{{{idx}}}) = {val:.6f}")
+                                st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['Delta']:.6f}")
+                                expr_tex = r"\frac{y\beta(a-1)t+(at+1)((y-1)t-1)}{(at+1)(t^2+t)}"
+                                if bound_min is not None:
+                                    st.latex(rf"\min_{{t\in(-1/a,0)}} {expr_tex} = {bound_min:.6f}")
+                                if bound_max is not None:
+                                    st.latex(rf"\max_{{t>0}} {expr_tex} = {bound_max:.6f}")
                                 st.markdown('</div>', unsafe_allow_html=True)
 
                                 # Add explanation
@@ -2586,20 +2674,28 @@ with tab2:
                     
                     quartic = compute_quartic_tianyuan(parameters['a'], parameters['y'], parameters['beta'])
                     display_quartic_summary(quartic, "Quartic Equation Analysis (Previous Result)")
-                    
+
                     if len(eigenvalues) > 1:
                         # Create KDE with default bandwidth
                         kde = gaussian_kde(eigenvalues)
-                        
+
                         # Evaluate KDE
                         x_min, x_max = eigenvalues.min(), eigenvalues.max()
                         x_range = x_max - x_min
                         x_eval = np.linspace(x_min - 0.1 * x_range, x_max + 0.1 * x_range, 500)
                         kde_vals = kde(x_eval)
-                        
+
+                        # Determine theoretical bounds from analytic expression
+                        bound_min, bound_max = compute_theoretical_bounds(
+                            parameters['a'], parameters['y'], parameters['beta'], bound_points
+                        )
+                        g_values = compute_g_values(
+                            quartic['roots'], parameters['a'], parameters['y'], parameters['beta']
+                        )
+
                         # Create the plot
                         fig = go.Figure()
-                        
+
                         # Add histogram
                         fig.add_trace(go.Histogram(
                             x=eigenvalues,
@@ -2608,7 +2704,7 @@ with tab2:
                             marker=dict(color='lightblue', opacity=0.6),
                             nbinsx=30
                         ))
-                        
+
                         # Add KDE curve
                         fig.add_trace(go.Scatter(
                             x=x_eval,
@@ -2617,6 +2713,32 @@ with tab2:
                             name='KDE',
                             line=dict(color='red', width=3)
                         ))
+
+                        # Mark theoretical bounds
+                        if bound_min is not None:
+                            fig.add_vline(
+                                x=bound_min,
+                                line_dash='dash',
+                                line_color='green',
+                                annotation_text='min',
+                                annotation_position='top left'
+                            )
+                        if bound_max is not None:
+                            fig.add_vline(
+                                x=bound_max,
+                                line_dash='dash',
+                                line_color='green',
+                                annotation_text='max',
+                                annotation_position='top right'
+                            )
+                        for idx, g_val in g_values:
+                            fig.add_vline(
+                                x=g_val,
+                                line_dash='dot',
+                                line_color='purple',
+                                annotation_text=f'g(t_{idx})',
+                                annotation_position='bottom'
+                            )
                         
                         # Update layout
                         fig.update_layout(
@@ -2635,6 +2757,41 @@ with tab2:
                         
                         # Display the plot
                         st.plotly_chart(fig, use_container_width=True)
+
+                        # Add statistics
+                        st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Min Eigenvalue", f"{eigenvalues.min():.4f}")
+                        with col2:
+                            st.metric("Max Eigenvalue", f"{eigenvalues.max():.4f}")
+                        with col3:
+                            st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                        with col4:
+                            st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+                        st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                        st.markdown("**Quartic Roots**")
+                        for i, root in enumerate(quartic['roots'], 1):
+                            real = float(np.real(root))
+                            imag = float(np.imag(root))
+                            if abs(imag) < 1e-12:
+                                st.latex(f"t_{{{i}}} = {real:.6f}")
+                            else:
+                                sign = '+' if imag >= 0 else '-'
+                                st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
+                        if g_values:
+                            st.markdown("**g(t_i) (real)**")
+                            for idx, val in g_values:
+                                st.latex(f"g(t_{{{idx}}}) = {val:.6f}")
+                        st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['delta']:.6f}")
+                        expr_tex = r"\frac{y\beta(a-1)t+(at+1)((y-1)t-1)}{(at+1)(t^2+t)}"
+                        if bound_min is not None:
+                            st.latex(rf"\min_{{t\in(-1/a,0)}} {expr_tex} = {bound_min:.6f}")
+                        if bound_max is not None:
+                            st.latex(rf"\max_{{t>0}} {expr_tex} = {bound_max:.6f}")
+                        st.markdown('</div>', unsafe_allow_html=True)
                         st.info("This is the previous analysis result. Adjust parameters and click 'Generate KDE Analysis' to create a new visualization.")
                     
                 except Exception as e:
@@ -2660,7 +2817,7 @@ with tab3:
             z_min_z = st.number_input("z_min", value=-10.0, key="z_min_tab2_z")
             z_max_z = st.number_input("z_max", value=10.0, key="z_max_tab2_z")
             with st.expander("Resolution Settings", expanded=False):
-                z_points = st.slider("z grid points", min_value=100, max_value=2000, value=500, step=100, key="z_points_z")
+                z_points = st.slider("z grid points", min_value=100, max_value=200000, value=500, step=100, key="z_points_z")
         if st.button("Compute Complex Roots vs. z", key="tab2_button_z"):
             with col2:
                 fig_im, fig_re, fig_disc = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
@@ -2769,7 +2926,7 @@ with tab3:
             beta_eigen = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_eigen")
             y_eigen = st.number_input("y", value=1.0, key="y_eigen")
             z_a_eigen = st.number_input("z_a", value=1.0, key="z_a_eigen")
-            n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
+            n_samples = st.slider("Number of samples (n)", min_value=100, max_value=200000, value=1000, step=100)
             sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
             show_theoretical = st.checkbox("Show theoretical boundaries", value=True)
             show_empirical_stats = st.checkbox("Show empirical statistics", value=True)
