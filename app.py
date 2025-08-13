@@ -298,6 +298,21 @@ def compute_theoretical_bounds(a, y, beta, points=1000):
 
     return min_val, max_val
 
+def compute_g_values(roots, a, y, beta):
+    """Evaluate g(t) for quartic roots and return real values."""
+    t = sp.symbols('t')
+    g_expr = (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / ((a * t + 1) * (t**2 + t))
+    g_func = sp.lambdify(t, g_expr, 'numpy')
+    results = []
+    for i, root in enumerate(roots, 1):
+        try:
+            val = g_func(root)
+            if np.isfinite(val) and abs(np.imag(val)) < 1e-12:
+                results.append((i, float(np.real(val))))
+        except Exception:
+            continue
+    return results
+
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
     st.markdown(f"### {header}")
@@ -2484,6 +2499,9 @@ with tab2:
                                 bound_min, bound_max = compute_theoretical_bounds(
                                     parameters['a'], parameters['y'], parameters['beta'], bound_points
                                 )
+                                g_values = compute_g_values(
+                                    quartic['roots'], parameters['a'], parameters['y'], parameters['beta']
+                                )
 
                                 # Create the plot
                                 fig = go.Figure()
@@ -2523,6 +2541,14 @@ with tab2:
                                         line_color='green',
                                         annotation_text='max',
                                         annotation_position='top right'
+                                    )
+                                for idx, g_val in g_values:
+                                    fig.add_vline(
+                                        x=g_val,
+                                        line_dash='dot',
+                                        line_color='purple',
+                                        annotation_text=f'g(t_{idx})',
+                                        annotation_position='bottom'
                                     )
                                 
                                 # Update layout
@@ -2584,6 +2610,10 @@ with tab2:
                                     else:
                                         sign = '+' if imag >= 0 else '-'
                                         st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
+                                if g_values:
+                                    st.markdown("**g(t_i) (real)**")
+                                    for idx, val in g_values:
+                                        st.latex(f"g(t_{{{idx}}}) = {val:.6f}")
                                 st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['delta']:.6f}")
                                 expr_tex = r"\frac{y\beta(a-1)t+(at+1)((y-1)t-1)}{(at+1)(t^2+t)}"
                                 if bound_min is not None:
@@ -2665,6 +2695,9 @@ with tab2:
                         bound_min, bound_max = compute_theoretical_bounds(
                             parameters['a'], parameters['y'], parameters['beta'], bound_points
                         )
+                        g_values = compute_g_values(
+                            quartic['roots'], parameters['a'], parameters['y'], parameters['beta']
+                        )
 
                         # Create the plot
                         fig = go.Figure()
@@ -2704,6 +2737,14 @@ with tab2:
                                 annotation_text='max',
                                 annotation_position='top right'
                             )
+                        for idx, g_val in g_values:
+                            fig.add_vline(
+                                x=g_val,
+                                line_dash='dot',
+                                line_color='purple',
+                                annotation_text=f'g(t_{idx})',
+                                annotation_position='bottom'
+                            )
                         
                         # Update layout
                         fig.update_layout(
@@ -2722,7 +2763,35 @@ with tab2:
                         
                         # Display the plot
                         st.plotly_chart(fig, use_container_width=True)
+
+                        # Add statistics
                         st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Min Eigenvalue", f"{eigenvalues.min():.4f}")
+                        with col2:
+                            st.metric("Max Eigenvalue", f"{eigenvalues.max():.4f}")
+                        with col3:
+                            st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                        with col4:
+                            st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+                        st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                        st.markdown("**Quartic Roots**")
+                        for i, root in enumerate(quartic['roots'], 1):
+                            real = float(np.real(root))
+                            imag = float(np.imag(root))
+                            if abs(imag) < 1e-12:
+                                st.latex(f"t_{{{i}}} = {real:.6f}")
+                            else:
+                                sign = '+' if imag >= 0 else '-'
+                                st.latex(f"t_{{{i}}} = {real:.6f} {sign} {abs(imag):.6f}i")
+                        if g_values:
+                            st.markdown("**g(t_i) (real)**")
+                            for idx, val in g_values:
+                                st.latex(f"g(t_{{{idx}}}) = {val:.6f}")
+                        st.latex(f"\\Delta_{0} = {quartic['tianyuan_values']['delta']:.6f}")
                         expr_tex = r"\frac{y\beta(a-1)t+(at+1)((y-1)t-1)}{(at+1)(t^2+t)}"
                         if bound_min is not None:
                             st.latex(rf"\min_{{t\in(-1/a,0)}} {expr_tex} = {bound_min:.6f}")
