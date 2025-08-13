@@ -1,4 +1,4 @@
-// app.cpp - Modified version with improved cubic solver
+// app.cpp - Modified version with improved cubic solver and fixed beta analysis
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cmath>
@@ -281,148 +281,6 @@ CubicRoots solveCubic(double a, double b, double c, double d) {
     return roots;
 }
 
-// Function to compute the cubic equation for Im(s) vs z
-std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points, double z_min, double z_max) {
-    std::vector<double> z_values(num_points);
-    std::vector<double> ims_values1(num_points);
-    std::vector<double> ims_values2(num_points);
-    std::vector<double> ims_values3(num_points);
-    std::vector<double> real_values1(num_points);
-    std::vector<double> real_values2(num_points);
-    std::vector<double> real_values3(num_points);
-    
-    // Use z_min and z_max parameters
-    double z_start = std::max(0.01, z_min);  // Avoid z=0 to prevent potential division issues
-    double z_end = z_max;
-    double z_step = (z_end - z_start) / (num_points - 1);
-    
-    for (int i = 0; i < num_points; ++i) {
-        double z = z_start + i * z_step;
-        z_values[i] = z;
-        
-        // Coefficients for the cubic equation:
-        // zas³ + [z(a+1)+a(1-y)]s² + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
-        double coef_a = z * a;
-        double coef_b = z * (a + 1) + a * (1 - y);
-        double coef_c = z + (a + 1) - y - y * beta * (a - 1);
-        double coef_d = 1.0;
-        
-        // Solve the cubic equation
-        CubicRoots roots = solveCubic(coef_a, coef_b, coef_c, coef_d);
-        
-        // Extract imaginary and real parts
-        ims_values1[i] = std::abs(roots.root1.imag());
-        ims_values2[i] = std::abs(roots.root2.imag());
-        ims_values3[i] = std::abs(roots.root3.imag());
-        
-        real_values1[i] = roots.root1.real();
-        real_values2[i] = roots.root2.real();
-        real_values3[i] = roots.root3.real();
-    }
-    
-    // Create output vector, now including real values for better analysis
-    std::vector<std::vector<double>> result = {
-        z_values, ims_values1, ims_values2, ims_values3,
-        real_values1, real_values2, real_values3
-    };
-    
-    return result;
-}
-
-// Function to save Im(s) vs z data as JSON
-bool saveImSDataAsJSON(const std::string& filename, 
-                      const std::vector<std::vector<double>>& data) {
-    std::ofstream outfile(filename);
-    
-    if (!outfile.is_open()) {
-        std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-        return false;
-    }
-    
-    // Helper function to format floating point values safely for JSON
-    auto formatJsonValue = [](double value) -> std::string {
-        if (std::isnan(value)) {
-            return "\"NaN\""; // JSON doesn't support NaN, so use string
-        } else if (std::isinf(value)) {
-            if (value > 0) {
-                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
-            } else {
-                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
-            }
-        } else {
-            // Use a fixed precision to avoid excessively long numbers
-            std::ostringstream oss;
-            oss << std::setprecision(15) << value;
-            return oss.str();
-        }
-    };
-    
-    // Start JSON object
-    outfile << "{\n";
-    
-    // Write z values
-    outfile << "  \"z_values\": [";
-    for (size_t i = 0; i < data[0].size(); ++i) {
-        outfile << formatJsonValue(data[0][i]);
-        if (i < data[0].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Im(s) values for first root
-    outfile << "  \"ims_values1\": [";
-    for (size_t i = 0; i < data[1].size(); ++i) {
-        outfile << formatJsonValue(data[1][i]);
-        if (i < data[1].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Im(s) values for second root
-    outfile << "  \"ims_values2\": [";
-    for (size_t i = 0; i < data[2].size(); ++i) {
-        outfile << formatJsonValue(data[2][i]);
-        if (i < data[2].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Im(s) values for third root
-    outfile << "  \"ims_values3\": [";
-    for (size_t i = 0; i < data[3].size(); ++i) {
-        outfile << formatJsonValue(data[3][i]);
-        if (i < data[3].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Real(s) values for first root
-    outfile << "  \"real_values1\": [";
-    for (size_t i = 0; i < data[4].size(); ++i) {
-        outfile << formatJsonValue(data[4][i]);
-        if (i < data[4].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Real(s) values for second root
-    outfile << "  \"real_values2\": [";
-    for (size_t i = 0; i < data[5].size(); ++i) {
-        outfile << formatJsonValue(data[5][i]);
-        if (i < data[5].size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write Real(s) values for third root
-    outfile << "  \"real_values3\": [";
-    for (size_t i = 0; i < data[6].size(); ++i) {
-        outfile << formatJsonValue(data[6][i]);
-        if (i < data[6].size() - 1) outfile << ", ";
-    }
-    outfile << "]\n";
-    
-    // Close JSON object
-    outfile << "}\n";
-    
-    outfile.close();
-    return true;
-}
-
 // Function to compute the theoretical max value
 double compute_theoretical_max(double a, double y, double beta, int grid_points, double tolerance) {
     auto f = [a, y, beta](double k) -> double {
@@ -614,21 +472,21 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
               << ", theory_tolerance = " << theory_tolerance << std::endl;
     std::cout << "Output will be saved to: " << output_file << std::endl;
     
-    // ─── Beta range parameters ────────────────────────────────────────
+    // ─── Beta range parameters ────────────────────────────────────────────────────────
     const int num_beta_points = fineness; // Controlled by fineness parameter
     std::vector<double> beta_values(num_beta_points);
     for (int i = 0; i < num_beta_points; ++i) {
         beta_values[i] = static_cast<double>(i) / (num_beta_points - 1);
     }
     
-    // ─── Storage for results ────────────────────────────────────────
+    // ─── Storage for results ─────────────────────────────────────────────────────────
     std::vector<double> max_eigenvalues(num_beta_points);
     std::vector<double> min_eigenvalues(num_beta_points);
     std::vector<double> theoretical_max_values(num_beta_points);
     std::vector<double> theoretical_min_values(num_beta_points);
     
     try {
-        // ─── Random‐Gaussian X and S_n ────────────────────────────────
+        // ─── Random Gaussian X and S_n ─────────────────────────────────────────────
         std::random_device rd;
         std::mt19937_64 rng{rd()};
         std::normal_distribution<double> norm(0.0, 1.0);
@@ -638,7 +496,7 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
             for(int j = 0; j < n; ++j)
                 X.at<double>(i,j) = norm(rng);
         
-        // ─── Process each beta value ─────────────────────────────────
+        // ─── Process each beta value ──────────────────────────────────────────────────
         for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
             double beta = beta_values[beta_idx];
             
@@ -646,7 +504,7 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
             theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
             theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
             
-            // ─── Build T_n matrix ──────────────────────────────────
+            // ─── Build T_n matrix ──────────────────────────────────────────────────
             int k = static_cast<int>(std::floor(beta * p));
             std::vector<double> diags(p, 1.0);
             std::fill_n(diags.begin(), k, a);
@@ -657,10 +515,10 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
                 T_n.at<double>(i,i) = diags[i];
             }
             
-            // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
+            // ─── Form B_n = (1/n) * X * T_n * X^T ──────────────────────────
             cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
             
-            // ─── Compute eigenvalues of B ────────────────────────────
+            // ─── Compute eigenvalues of B ─────────────────────────────────────
             cv::Mat eigVals;
             cv::eigen(B, eigVals);
             std::vector<double> eigs(n);  
@@ -696,6 +554,415 @@ bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness,
     }
     catch (...) {
         std::cerr << "Unknown error in eigenvalue analysis" << std::endl;
+        return false;
+    }
+}
+
+// Fixed beta eigenvalue analysis function
+bool fixedBetaEigenvalueAnalysis(int n, int p, double y, double beta, double a_min, double a_max, int fineness, 
+                                int theory_grid_points, double theory_tolerance, 
+                                const std::string& output_file) {
+    
+    std::cout << "Running fixed beta eigenvalue analysis with parameters: n = " << n << ", p = " << p 
+              << ", y = " << y << ", beta = " << beta << ", a_min = " << a_min << ", a_max = " << a_max
+              << ", fineness = " << fineness 
+              << ", theory_grid_points = " << theory_grid_points
+              << ", theory_tolerance = " << theory_tolerance << std::endl;
+    std::cout << "Output will be saved to: " << output_file << std::endl;
+    
+    // ─── a range parameters ────────────────────────────────────────────────────────────
+    const int num_a_points = fineness; // Controlled by fineness parameter
+    std::vector<double> a_values(num_a_points);
+    for (int i = 0; i < num_a_points; ++i) {
+        a_values[i] = a_min + (a_max - a_min) * static_cast<double>(i) / (num_a_points - 1);
+    }
+    
+    // ─── Storage for results ─────────────────────────────────────────────────────────
+    std::vector<double> max_eigenvalues(num_a_points);
+    std::vector<double> min_eigenvalues(num_a_points);
+    std::vector<double> theoretical_max_values(num_a_points);
+    std::vector<double> theoretical_min_values(num_a_points);
+    
+    try {
+        // ─── Random Gaussian X and S_n ─────────────────────────────────────────────
+        std::random_device rd;
+        std::mt19937_64 rng{rd()};
+        std::normal_distribution<double> norm(0.0, 1.0);
+        
+        cv::Mat X(p, n, CV_64F);
+        for(int i = 0; i < p; ++i)
+            for(int j = 0; j < n; ++j)
+                X.at<double>(i,j) = norm(rng);
+        
+        // ─── Process each a value ──────────────────────────────────────────────────
+        for (int a_idx = 0; a_idx < num_a_points; ++a_idx) {
+            double a = a_values[a_idx];
+            
+            // Compute theoretical values with customizable precision
+            theoretical_max_values[a_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
+            theoretical_min_values[a_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
+            
+            // ─── Build T_n matrix ──────────────────────────────────────────────────
+            int k = static_cast<int>(std::floor(beta * p));
+            std::vector<double> diags(p, 1.0);
+            std::fill_n(diags.begin(), k, a);
+            std::shuffle(diags.begin(), diags.end(), rng);
+            
+            cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
+            for(int i = 0; i < p; ++i){
+                T_n.at<double>(i,i) = diags[i];
+            }
+            
+            // ─── Form B_n = (1/n) * X * T_n * X^T ──────────────────────────
+            cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
+            
+            // ─── Compute eigenvalues of B ─────────────────────────────────────
+            cv::Mat eigVals;
+            cv::eigen(B, eigVals);
+            std::vector<double> eigs(n);  
+            for(int i = 0; i < n; ++i)
+                eigs[i] = eigVals.at<double>(i, 0);
+            
+            max_eigenvalues[a_idx] = *std::max_element(eigs.begin(), eigs.end());
+            min_eigenvalues[a_idx] = *std::min_element(eigs.begin(), eigs.end());
+            
+            // Progress indicator for Streamlit
+            double progress = static_cast<double>(a_idx + 1) / num_a_points;
+            std::cout << "PROGRESS:" << progress << std::endl;
+            
+            // Less verbose output for Streamlit
+            if (a_idx % 20 == 0 || a_idx == num_a_points - 1) {
+                std::cout << "Processing a = " << a 
+                        << " (" << a_idx+1 << "/" << num_a_points << ")" << std::endl;
+            }
+        }
+        
+        // Save data as JSON for Python to read - use same format but with a_values instead of beta_values
+        std::ofstream outfile(output_file);
+        
+        if (!outfile.is_open()) {
+            std::cerr << "Error: Could not open file " << output_file << " for writing." << std::endl;
+            return false;
+        }
+        
+        // Helper function to format floating point values safely for JSON
+        auto formatJsonValue = [](double value) -> std::string {
+            if (std::isnan(value)) {
+                return "\"NaN\""; // JSON doesn't support NaN, so use string
+            } else if (std::isinf(value)) {
+                if (value > 0) {
+                    return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+                } else {
+                    return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+                }
+            } else {
+                // Use a fixed precision to avoid excessively long numbers
+                std::ostringstream oss;
+                oss << std::setprecision(15) << value;
+                return oss.str();
+            }
+        };
+        
+        // Start JSON object
+        outfile << "{\n";
+        
+        // Write a values (instead of beta values)
+        outfile << "  \"a_values\": [";
+        for (size_t i = 0; i < a_values.size(); ++i) {
+            outfile << formatJsonValue(a_values[i]);
+            if (i < a_values.size() - 1) outfile << ", ";
+        }
+        outfile << "],\n";
+        
+        // Write max eigenvalues
+        outfile << "  \"max_eigenvalues\": [";
+        for (size_t i = 0; i < max_eigenvalues.size(); ++i) {
+            outfile << formatJsonValue(max_eigenvalues[i]);
+            if (i < max_eigenvalues.size() - 1) outfile << ", ";
+        }
+        outfile << "],\n";
+        
+        // Write min eigenvalues
+        outfile << "  \"min_eigenvalues\": [";
+        for (size_t i = 0; i < min_eigenvalues.size(); ++i) {
+            outfile << formatJsonValue(min_eigenvalues[i]);
+            if (i < min_eigenvalues.size() - 1) outfile << ", ";
+        }
+        outfile << "],\n";
+        
+        // Write theoretical max values
+        outfile << "  \"theoretical_max\": [";
+        for (size_t i = 0; i < theoretical_max_values.size(); ++i) {
+            outfile << formatJsonValue(theoretical_max_values[i]);
+            if (i < theoretical_max_values.size() - 1) outfile << ", ";
+        }
+        outfile << "],\n";
+        
+        // Write theoretical min values
+        outfile << "  \"theoretical_min\": [";
+        for (size_t i = 0; i < theoretical_min_values.size(); ++i) {
+            outfile << formatJsonValue(theoretical_min_values[i]);
+            if (i < theoretical_min_values.size() - 1) outfile << ", ";
+        }
+        outfile << "]\n";
+        
+        // Close JSON object
+        outfile << "}\n";
+        
+        outfile.close();
+        
+        std::cout << "Data saved to " << output_file << std::endl;
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error in fixed beta eigenvalue analysis: " << e.what() << std::endl;
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error in fixed beta eigenvalue analysis" << std::endl;
+        return false;
+    }
+}
+
+// Function to compute the cubic equation for Im(s) vs z
+std::vector<std::vector<double>> computeImSVsZ(double a, double y, double beta, int num_points, double z_min, double z_max) {
+    std::vector<double> z_values(num_points);
+    std::vector<double> ims_values1(num_points);
+    std::vector<double> ims_values2(num_points);
+    std::vector<double> ims_values3(num_points);
+    std::vector<double> real_values1(num_points);
+    std::vector<double> real_values2(num_points);
+    std::vector<double> real_values3(num_points);
+    
+    // Use z_min and z_max parameters
+    double z_start = std::max(0.01, z_min);  // Avoid z=0 to prevent potential division issues
+    double z_end = z_max;
+    double z_step = (z_end - z_start) / (num_points - 1);
+    
+    for (int i = 0; i < num_points; ++i) {
+        double z = z_start + i * z_step;
+        z_values[i] = z;
+        
+        // Coefficients for the cubic equation:
+        // zasÂ³ + [z(a+1)+a(1-y)]sÂ² + [z+(a+1)-y-yÎ²(a-1)]s + 1 = 0
+        double coef_a = z * a;
+        double coef_b = z * (a + 1) + a * (1 - y);
+        double coef_c = z + (a + 1) - y - y * beta * (a - 1);
+        double coef_d = 1.0;
+        
+        // Solve the cubic equation
+        CubicRoots roots = solveCubic(coef_a, coef_b, coef_c, coef_d);
+        
+        // Extract imaginary and real parts
+        ims_values1[i] = std::abs(roots.root1.imag());
+        ims_values2[i] = std::abs(roots.root2.imag());
+        ims_values3[i] = std::abs(roots.root3.imag());
+        
+        real_values1[i] = roots.root1.real();
+        real_values2[i] = roots.root2.real();
+        real_values3[i] = roots.root3.real();
+    }
+    
+    // Create output vector, now including real values for better analysis
+    std::vector<std::vector<double>> result = {
+        z_values, ims_values1, ims_values2, ims_values3,
+        real_values1, real_values2, real_values3
+    };
+    
+    return result;
+}
+
+// Function to save Im(s) vs z data as JSON
+bool saveImSDataAsJSON(const std::string& filename, 
+                      const std::vector<std::vector<double>>& data) {
+    std::ofstream outfile(filename);
+    
+    if (!outfile.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
+        return false;
+    }
+    
+    // Helper function to format floating point values safely for JSON
+    auto formatJsonValue = [](double value) -> std::string {
+        if (std::isnan(value)) {
+            return "\"NaN\""; // JSON doesn't support NaN, so use string
+        } else if (std::isinf(value)) {
+            if (value > 0) {
+                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
+            } else {
+                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
+            }
+        } else {
+            // Use a fixed precision to avoid excessively long numbers
+            std::ostringstream oss;
+            oss << std::setprecision(15) << value;
+            return oss.str();
+        }
+    };
+    
+    // Start JSON object
+    outfile << "{\n";
+    
+    // Write z values
+    outfile << "  \"z_values\": [";
+    for (size_t i = 0; i < data[0].size(); ++i) {
+        outfile << formatJsonValue(data[0][i]);
+        if (i < data[0].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Im(s) values for first root
+    outfile << "  \"ims_values1\": [";
+    for (size_t i = 0; i < data[1].size(); ++i) {
+        outfile << formatJsonValue(data[1][i]);
+        if (i < data[1].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Im(s) values for second root
+    outfile << "  \"ims_values2\": [";
+    for (size_t i = 0; i < data[2].size(); ++i) {
+        outfile << formatJsonValue(data[2][i]);
+        if (i < data[2].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Im(s) values for third root
+    outfile << "  \"ims_values3\": [";
+    for (size_t i = 0; i < data[3].size(); ++i) {
+        outfile << formatJsonValue(data[3][i]);
+        if (i < data[3].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for first root
+    outfile << "  \"real_values1\": [";
+    for (size_t i = 0; i < data[4].size(); ++i) {
+        outfile << formatJsonValue(data[4][i]);
+        if (i < data[4].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for second root
+    outfile << "  \"real_values2\": [";
+    for (size_t i = 0; i < data[5].size(); ++i) {
+        outfile << formatJsonValue(data[5][i]);
+        if (i < data[5].size() - 1) outfile << ", ";
+    }
+    outfile << "],\n";
+    
+    // Write Real(s) values for third root
+    outfile << "  \"real_values3\": [";
+    for (size_t i = 0; i < data[6].size(); ++i) {
+        outfile << formatJsonValue(data[6][i]);
+        if (i < data[6].size() - 1) outfile << ", ";
+    }
+    outfile << "]\n";
+    
+    // Close JSON object
+    outfile << "}\n";
+    
+    outfile.close();
+    return true;
+}
+
+// Eigenvalue distribution analysis function
+bool eigenvalueDistributionAnalysis(double a, double beta, int n, int p, 
+                                   const std::string& output_file) {
+    
+    double y = static_cast<double>(p) / static_cast<double>(n);
+    std::cout << "Running eigenvalue distribution analysis with parameters: a = " << a 
+              << ", beta = " << beta << ", n = " << n << ", p = " << p
+              << ", y = " << y << std::endl;
+    std::cout << "Output will be saved to: " << output_file << std::endl;
+    
+    try {
+        // Random number generator
+        std::random_device rd;
+        std::mt19937_64 rng{rd()};
+        std::normal_distribution<double> norm(0.0, 1.0);
+        
+        // Generate random Gaussian matrix X
+        cv::Mat X(p, n, CV_64F);
+        for(int i = 0; i < p; ++i) {
+            for(int j = 0; j < n; ++j) {
+                X.at<double>(i,j) = norm(rng);
+            }
+        }
+        
+        // Build T_n matrix (diagonal matrix with spike eigenvalues)
+        int k = static_cast<int>(std::floor(beta * p));
+        std::vector<double> diags(p, 1.0);
+        std::fill_n(diags.begin(), k, a);  // 'a' for spike eigenvalues, 1.0 for others
+        std::shuffle(diags.begin(), diags.end(), rng);
+        
+        cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
+        for(int i = 0; i < p; ++i){
+            T_n.at<double>(i,i) = diags[i];
+        }
+        
+        // Form sample covariance matrix B_n = (1/n) * X^T * T_n * X
+        cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
+        
+        // Compute eigenvalues
+        cv::Mat eigVals;
+        cv::eigen(B, eigVals);
+        
+        std::vector<double> eigenvalues(n);  
+        for(int i = 0; i < n; ++i) {
+            eigenvalues[i] = eigVals.at<double>(i, 0);
+        }
+        
+        // Save data as JSON
+        std::ofstream outfile(output_file);
+        if (!outfile.is_open()) {
+            std::cerr << "Error: Could not open file " << output_file << " for writing." << std::endl;
+            return false;
+        }
+        
+        // Helper function to format floating point values safely for JSON
+        auto formatJsonValue = [](double value) -> std::string {
+            if (std::isnan(value)) {
+                return "\"NaN\"";
+            } else if (std::isinf(value)) {
+                return value > 0 ? "\"Infinity\"" : "\"-Infinity\"";
+            } else {
+                std::ostringstream oss;
+                oss << std::setprecision(15) << value;
+                return oss.str();
+            }
+        };
+        
+        // Write JSON
+        outfile << "{\n";
+        
+        // Write parameters
+        outfile << "  \"parameters\": {\n";
+        outfile << "    \"a\": " << formatJsonValue(a) << ",\n";
+        outfile << "    \"beta\": " << formatJsonValue(beta) << ",\n";
+        outfile << "    \"y\": " << formatJsonValue(y) << ",\n";
+        outfile << "    \"n\": " << n << ",\n";
+        outfile << "    \"p\": " << p << "\n";
+        outfile << "  },\n";
+        
+        // Write eigenvalues
+        outfile << "  \"eigenvalues\": [";
+        for (size_t i = 0; i < eigenvalues.size(); ++i) {
+            outfile << formatJsonValue(eigenvalues[i]);
+            if (i < eigenvalues.size() - 1) outfile << ", ";
+        }
+        outfile << "]\n";
+        outfile << "}\n";
+        
+        outfile.close();
+        std::cout << "Eigenvalue distribution data saved to " << output_file << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error in eigenvalue distribution analysis: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "Unknown error in eigenvalue distribution analysis" << std::endl;
         return false;
     }
 }
@@ -740,6 +1007,8 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Error: Missing mode argument." << std::endl;
         std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+        std::cerr << "   or: " << argv[0] << " eigenvalues_fixed_beta <n> <p> <y> <beta> <a_min> <a_max> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+        std::cerr << "   or: " << argv[0] << " eigenvalue_distribution <a> <beta> <n> <p> <output_file>" << std::endl;
         std::cerr << "   or: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
         return 1;
     }
@@ -748,7 +1017,7 @@ int main(int argc, char* argv[]) {
     
     try {
         if (mode == "eigenvalues") {
-            // ─── Eigenvalue analysis mode ───────────────────────────────────────────
+            // ─── Eigenvalue analysis mode ───────────────────────────────────────────────────────
             if (argc != 10) {
                 std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
                 std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
@@ -769,8 +1038,51 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             
+        } else if (mode == "eigenvalues_fixed_beta") {
+            // ─── Fixed beta eigenvalue analysis mode ────────────────────────────────────────────
+            if (argc != 12) {
+                std::cerr << "Error: Incorrect number of arguments for eigenvalues_fixed_beta mode." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " eigenvalues_fixed_beta <n> <p> <y> <beta> <a_min> <a_max> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 12." << std::endl;
+                return 1;
+            }
+            
+            int n = std::stoi(argv[2]);
+            int p = std::stoi(argv[3]);
+            double y = std::stod(argv[4]);
+            double beta = std::stod(argv[5]);
+            double a_min = std::stod(argv[6]);
+            double a_max = std::stod(argv[7]);
+            int fineness = std::stoi(argv[8]);
+            int theory_grid_points = std::stoi(argv[9]);
+            double theory_tolerance = std::stod(argv[10]);
+            std::string output_file = argv[11];
+            
+            if (!fixedBetaEigenvalueAnalysis(n, p, y, beta, a_min, a_max, fineness, theory_grid_points, theory_tolerance, output_file)) {
+                return 1;
+            }
+            
+        } else if (mode == "eigenvalue_distribution") {
+            // ─── Eigenvalue distribution analysis mode ──────────────────────────────────────────
+            if (argc != 7) {
+                std::cerr << "Error: Incorrect number of arguments for eigenvalue_distribution mode." << std::endl;
+                std::cerr << "Usage: " << argv[0] << " eigenvalue_distribution <a> <beta> <n> <p> <output_file>" << std::endl;
+                std::cerr << "Received " << argc << " arguments, expected 7." << std::endl;
+                return 1;
+            }
+            
+            double a = std::stod(argv[2]);
+            double beta = std::stod(argv[3]);
+            int n = std::stoi(argv[4]);
+            int p = std::stoi(argv[5]);
+            std::string output_file = argv[6];
+            
+            if (!eigenvalueDistributionAnalysis(a, beta, n, p, output_file)) {
+                return 1;
+            }
+            
         } else if (mode == "cubic") {
-            // ─── Cubic equation analysis mode ───────────────────────────────────────────
+            // ─── Cubic equation analysis mode ──────────────────────────────────────────────────
             if (argc != 9) {
                 std::cerr << "Error: Incorrect number of arguments for cubic mode." << std::endl;
                 std::cerr << "Usage: " << argv[0] << " cubic <a> <y> <beta> <num_points> <z_min> <z_max> <output_file>" << std::endl;
@@ -792,7 +1104,7 @@ int main(int argc, char* argv[]) {
             
         } else {
             std::cerr << "Error: Unknown mode: " << mode << std::endl;
-            std::cerr << "Use 'eigenvalues' or 'cubic'" << std::endl;
+            std::cerr << "Use 'eigenvalues', 'eigenvalues_fixed_beta', 'eigenvalue_distribution', or 'cubic'" << std::endl;
             return 1;
         }
     }
