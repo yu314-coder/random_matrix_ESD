@@ -313,22 +313,43 @@ def compute_g_values(roots, a, y, beta):
             continue
     return results
 
-def compute_eigenvalue_ranges(eigenvalues, gap_factor=5):
-    """Return eigenvalue support intervals detecting large gaps."""
+def compute_eigenvalue_ranges(eigenvalues, bins=200):
+    """Return eigenvalue support intervals by locating zero-density gaps.
+
+    The function builds a histogram of the eigenvalues and identifies
+    contiguous regions with non-zero counts. Endpoints of these regions
+    mark where the empirical density drops to zero. If no internal gaps are
+    found, a single range spanning the full data is returned. At most two
+    ranges are reported.
+    """
     if eigenvalues.size == 0:
         return []
     eigenvalues = np.sort(eigenvalues)
     if eigenvalues.size == 1:
-        return [(eigenvalues[0], eigenvalues[0])]
-    diffs = np.diff(eigenvalues)
-    positive_diffs = diffs[diffs > 0]
-    median_diff = np.median(positive_diffs) if positive_diffs.size > 0 else 0
-    threshold = gap_factor * median_diff if median_diff > 0 else np.max(diffs)
-    gaps = np.where(diffs > threshold)[0]
-    if gaps.size >= 1:
-        idx = gaps[0]
-        return [(eigenvalues[0], eigenvalues[idx]), (eigenvalues[idx + 1], eigenvalues[-1])]
-    return [(eigenvalues[0], eigenvalues[-1])]
+        val = float(eigenvalues[0])
+        return [(val, val)]
+
+    hist, edges = np.histogram(eigenvalues, bins=bins)
+    positive = hist > 0
+    intervals = []
+    start_idx = None
+    for i, pos in enumerate(positive):
+        if pos and start_idx is None:
+            start_idx = i
+        elif not pos and start_idx is not None:
+            left_edge, right_edge = edges[start_idx], edges[i]
+            left = np.searchsorted(eigenvalues, left_edge, side='left')
+            right = np.searchsorted(eigenvalues, right_edge, side='right') - 1
+            intervals.append((eigenvalues[left], eigenvalues[right]))
+            start_idx = None
+    if start_idx is not None:
+        left_edge, right_edge = edges[start_idx], edges[-1]
+        left = np.searchsorted(eigenvalues, left_edge, side='left')
+        intervals.append((eigenvalues[left], eigenvalues[-1]))
+
+    if len(intervals) <= 1:
+        return [(eigenvalues[0], eigenvalues[-1])]
+    return intervals[:2]
 
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
