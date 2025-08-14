@@ -313,14 +313,14 @@ def compute_g_values(roots, a, y, beta):
             continue
     return results
 
-def compute_eigenvalue_ranges(eigenvalues, bins=200):
-    """Return eigenvalue support intervals by locating zero-density gaps.
+def compute_eigenvalue_ranges(eigenvalues, gap_factor=20):
+    """Return eigenvalue support intervals by inspecting gaps in eigenvalues.
 
-    The function builds a histogram of the eigenvalues and identifies
-    contiguous regions with non-zero counts. Endpoints of these regions
-    mark where the empirical density drops to zero. If no internal gaps are
-    found, a single range spanning the full data is returned. At most two
-    ranges are reported.
+    The eigenvalues are sorted and the largest consecutive gap is compared to
+    the typical spacing. If this gap is sufficiently large (controlled by
+    ``gap_factor``), the spectrum is assumed to split into two disjoint
+    intervals. Otherwise a single range from the minimum to the maximum is
+    returned. At most two ranges are reported.
     """
     if eigenvalues.size == 0:
         return []
@@ -329,27 +329,19 @@ def compute_eigenvalue_ranges(eigenvalues, bins=200):
         val = float(eigenvalues[0])
         return [(val, val)]
 
-    hist, edges = np.histogram(eigenvalues, bins=bins)
-    positive = hist > 0
-    intervals = []
-    start_idx = None
-    for i, pos in enumerate(positive):
-        if pos and start_idx is None:
-            start_idx = i
-        elif not pos and start_idx is not None:
-            left_edge, right_edge = edges[start_idx], edges[i]
-            left = np.searchsorted(eigenvalues, left_edge, side='left')
-            right = np.searchsorted(eigenvalues, right_edge, side='right') - 1
-            intervals.append((eigenvalues[left], eigenvalues[right]))
-            start_idx = None
-    if start_idx is not None:
-        left_edge, right_edge = edges[start_idx], edges[-1]
-        left = np.searchsorted(eigenvalues, left_edge, side='left')
-        intervals.append((eigenvalues[left], eigenvalues[-1]))
-
-    if len(intervals) <= 1:
+    gaps = np.diff(eigenvalues)
+    if gaps.size == 0:
         return [(eigenvalues[0], eigenvalues[-1])]
-    return intervals[:2]
+    max_idx = np.argmax(gaps)
+    max_gap = gaps[max_idx]
+    typical_gap = np.median(gaps)
+
+    if typical_gap > 0 and max_gap > gap_factor * typical_gap:
+        left_range = (eigenvalues[0], eigenvalues[max_idx])
+        right_range = (eigenvalues[max_idx + 1], eigenvalues[-1])
+        return [left_range, right_range]
+
+    return [(eigenvalues[0], eigenvalues[-1])]
 
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
