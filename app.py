@@ -313,6 +313,23 @@ def compute_g_values(roots, a, y, beta):
             continue
     return results
 
+def compute_eigenvalue_ranges(eigenvalues, gap_factor=5):
+    """Return eigenvalue support intervals detecting large gaps."""
+    if eigenvalues.size == 0:
+        return []
+    eigenvalues = np.sort(eigenvalues)
+    if eigenvalues.size == 1:
+        return [(eigenvalues[0], eigenvalues[0])]
+    diffs = np.diff(eigenvalues)
+    positive_diffs = diffs[diffs > 0]
+    median_diff = np.median(positive_diffs) if positive_diffs.size > 0 else 0
+    threshold = gap_factor * median_diff if median_diff > 0 else np.max(diffs)
+    gaps = np.where(diffs > threshold)[0]
+    if gaps.size >= 1:
+        idx = gaps[0]
+        return [(eigenvalues[0], eigenvalues[idx]), (eigenvalues[idx + 1], eigenvalues[-1])]
+    return [(eigenvalues[0], eigenvalues[-1])]
+
 def display_quartic_summary(quartic, header):
     """Display quartic coefficients, Tianyuan invariants, and roots."""
     st.markdown(f"### {header}")
@@ -2587,16 +2604,33 @@ with tab2:
                                 st.plotly_chart(fig, use_container_width=True)
 
                                 # Add statistics
+                                ranges = compute_eigenvalue_ranges(eigenvalues)
                                 st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.metric("Min Eigenvalue", f"{eigenvalues.min():.4f}")
-                                with col2:
-                                    st.metric("Max Eigenvalue", f"{eigenvalues.max():.4f}")
-                                with col3:
-                                    st.metric("Mean", f"{eigenvalues.mean():.4f}")
-                                with col4:
-                                    st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                                if len(ranges) == 1:
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    with col1:
+                                        st.metric("Min Eigenvalue", f"{ranges[0][0]:.4f}")
+                                    with col2:
+                                        st.metric("Max Eigenvalue", f"{ranges[0][1]:.4f}")
+                                    with col3:
+                                        st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                                    with col4:
+                                        st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                                else:
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    with col1:
+                                        st.metric("Range 1 Min", f"{ranges[0][0]:.4f}")
+                                    with col2:
+                                        st.metric("Range 1 Max", f"{ranges[0][1]:.4f}")
+                                    with col3:
+                                        st.metric("Range 2 Min", f"{ranges[1][0]:.4f}")
+                                    with col4:
+                                        st.metric("Range 2 Max", f"{ranges[1][1]:.4f}")
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                                    with col2:
+                                        st.metric("Std Dev", f"{eigenvalues.std():.4f}")
                                 st.markdown('</div>', unsafe_allow_html=True)
 
                                 # Show roots and Δ below statistics
@@ -2765,16 +2799,33 @@ with tab2:
                         st.plotly_chart(fig, use_container_width=True)
 
                         # Add statistics
+                        ranges = compute_eigenvalue_ranges(eigenvalues)
                         st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Min Eigenvalue", f"{eigenvalues.min():.4f}")
-                        with col2:
-                            st.metric("Max Eigenvalue", f"{eigenvalues.max():.4f}")
-                        with col3:
-                            st.metric("Mean", f"{eigenvalues.mean():.4f}")
-                        with col4:
-                            st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                        if len(ranges) == 1:
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Min Eigenvalue", f"{ranges[0][0]:.4f}")
+                            with col2:
+                                st.metric("Max Eigenvalue", f"{ranges[0][1]:.4f}")
+                            with col3:
+                                st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                            with col4:
+                                st.metric("Std Dev", f"{eigenvalues.std():.4f}")
+                        else:
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Range 1 Min", f"{ranges[0][0]:.4f}")
+                            with col2:
+                                st.metric("Range 1 Max", f"{ranges[0][1]:.4f}")
+                            with col3:
+                                st.metric("Range 2 Min", f"{ranges[1][0]:.4f}")
+                            with col4:
+                                st.metric("Range 2 Max", f"{ranges[1][1]:.4f}")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Mean", f"{eigenvalues.mean():.4f}")
+                            with col2:
+                                st.metric("Std Dev", f"{eigenvalues.std():.4f}")
                         st.markdown('</div>', unsafe_allow_html=True)
 
                         st.markdown('<div class="stats-box">', unsafe_allow_html=True)
