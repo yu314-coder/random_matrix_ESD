@@ -1,0 +1,143 @@
+PRIVACY POLICY
+
+Last Updated: November 26, 2024
+
+================================================================================
+
+1. INTRODUCTION
+
+This Privacy Policy describes how Generalized Covariance Matrix ("we", "our",
+or "the App") handles your information. We are committed to protecting your
+privacy and ensuring transparency about our data practices.
+
+================================================================================
+
+2. INFORMATION COLLECTION AND USE
+
+2.1 Local Processing
+
+Generalized Covariance Matrix is designed as a local application that runs
+entirely on your device. We do not collect, transmit, or store any personal
+information on external servers.
+
+2.2 Data We Do Not Collect
+
+We do not collect:
+- Personal identification information (name, email, address, phone number)
+- Location data
+- Usage analytics or telemetry
+- Device information
+- Cookies or tracking data
+
+================================================================================
+
+3. LOCAL DATA STORAGE
+
+3.1 Temporary Files
+
+The App may create temporary files on your local device during operation,
+including:
+- Computed results and visualizations
+- Image processing outputs
+- Analysis session data
+
+These files are stored locally in your user directory (e.g., .random_matrix
+folder) and remain entirely under your control.
+
+3.2 User-Generated Content
+
+Any images, data, or files you import or process within the App remain on
+your local device. You have complete control over these files and can delete
+them at any time.
+
+================================================================================
+
+4. THIRD-PARTY SERVICES
+
+The App does not integrate with any third-party analytics, advertising, or
+tracking services. All computations and processing occur locally on your
+device.
+
+================================================================================
+
+5. GPU ACCELERATION
+
+If available, the App may utilize GPU acceleration (CuPy) for faster
+computations. This processing occurs entirely on your local device and does
+not transmit any data externally.
+
+================================================================================
+
+6. DATA SECURITY
+
+Since all data processing occurs locally on your device, the security of
+your data depends on:
+- Your device's security settings and protections
+- Your operating system's file permissions
+- Your local backup and security practices
+
+We recommend following standard security best practices for your device and
+operating system.
+
+================================================================================
+
+7. CHILDREN'S PRIVACY
+
+The App does not knowingly collect any information from children under the
+age of 13. The App is designed for research, education, and professional use
+in mathematical analysis and signal processing.
+
+================================================================================
+
+8. CHANGES TO THIS PRIVACY POLICY
+
+We may update this Privacy Policy from time to time. Any changes will be
+reflected in the "Last Updated" date at the top of this document. We
+encourage you to review this Privacy Policy periodically.
+
+================================================================================
+
+9. DATA DELETION
+
+Since all data is stored locally on your device, you can delete any data
+created by the App at any time by:
+- Using the App's built-in folder management features
+- Manually deleting files from your local storage
+- Uninstalling the App
+
+================================================================================
+
+10. OPEN SOURCE
+
+This application is open source. You can review the source code to verify
+our privacy practices at our GitHub repository.
+
+================================================================================
+
+11. YOUR RIGHTS
+
+Since we do not collect or store any personal data on external servers,
+traditional data rights (access, rectification, erasure, portability) are
+not applicable. All your data remains under your complete control on your
+local device.
+
+================================================================================
+
+12. CONTACT INFORMATION
+
+If you have any questions or concerns about this Privacy Policy, please
+contact us at:
+
+- GitHub: https://github.com/yourusername/generalized-covariance-matrix
+- Publisher: Yu, Yao-hsing
+
+================================================================================
+
+13. CONSENT
+
+By using Generalized Covariance Matrix, you consent to this Privacy Policy.
+
+================================================================================
+
+This Privacy Policy applies to the Generalized Covariance Matrix application
+available on the Microsoft Store and other distribution platforms.
