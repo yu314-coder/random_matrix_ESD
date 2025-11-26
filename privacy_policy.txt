@@ -57,18 +57,9 @@ them at any time.
 The App does not integrate with any third-party analytics, advertising, or
 tracking services. All computations and processing occur locally on your
 device.
-
 ================================================================================
 
-5. GPU ACCELERATION
-
-If available, the App may utilize GPU acceleration (CuPy) for faster
-computations. This processing occurs entirely on your local device and does
-not transmit any data externally.
-
-================================================================================
-
-6. DATA SECURITY
+5. DATA SECURITY
 
 Since all data processing occurs locally on your device, the security of
 your data depends on:
@@ -81,7 +72,7 @@ operating system.
 
 ================================================================================
 
-7. CHILDREN'S PRIVACY
+6. CHILDREN'S PRIVACY
 
 The App does not knowingly collect any information from children under the
 age of 13. The App is designed for research, education, and professional use
@@ -89,7 +80,7 @@ in mathematical analysis and signal processing.
 
 ================================================================================
 
-8. CHANGES TO THIS PRIVACY POLICY
+7. CHANGES TO THIS PRIVACY POLICY
 
 We may update this Privacy Policy from time to time. Any changes will be
 reflected in the "Last Updated" date at the top of this document. We
@@ -97,7 +88,7 @@ encourage you to review this Privacy Policy periodically.
 
 ================================================================================
 
-9. DATA DELETION
+8. DATA DELETION
 
 Since all data is stored locally on your device, you can delete any data
 created by the App at any time by:
@@ -107,14 +98,14 @@ created by the App at any time by:
 
 ================================================================================
 
-10. OPEN SOURCE
+9. OPEN SOURCE
 
 This application is open source. You can review the source code to verify
 our privacy practices at our GitHub repository.
 
 ================================================================================
 
-11. YOUR RIGHTS
+10. YOUR RIGHTS
 
 Since we do not collect or store any personal data on external servers,
 traditional data rights (access, rectification, erasure, portability) are
@@ -123,17 +114,16 @@ local device.
 
 ================================================================================
 
-12. CONTACT INFORMATION
+11. CONTACT INFORMATION
 
 If you have any questions or concerns about this Privacy Policy, please
 contact us at:
 
-- GitHub: https://github.com/yourusername/generalized-covariance-matrix
-- Publisher: Yu, Yao-hsing
+- GitHub: https://github.com/yu314-coder/random_matrix_ESD
 
 ================================================================================
 
-13. CONSENT
+12. CONSENT
 
 By using Generalized Covariance Matrix, you consent to this Privacy Policy.
 
