@@ -34,7 +34,6 @@ Matrix Analysis Lab is a powerful tool that applies random matrix theory princip
   - Save output to organized folders
 
 ### Advanced Features
-- **GPU Acceleration**: Optional CuPy support for faster matrix operations
 - **Interactive UI**: Built with pywebview for native desktop performance
 - **Visualization**: Plotly-powered interactive charts
 - **File Management**: Built-in temp file manager to organize outputs
@@ -51,18 +50,6 @@ Matrix Analysis Lab is a powerful tool that applies random matrix theory princip
 pip install -r requirements.txt
 ```
 
-### Optional Dependencies
-
-**For GPU Acceleration** (requires NVIDIA GPU with CUDA):
-```bash
-pip install cupy-cuda11x
-```
-
-**For Browser Automation Features**:
-```bash
-pip install playwright
-playwright install
-```
 
 ## Usage
 
@@ -72,20 +59,6 @@ playwright install
 python app.py
 ```
 
-Or use the compiled executable:
-```bash
-./dist/app.exe
-```
-
-### Building Executable
-
-To create a standalone executable using PyInstaller:
-
-```bash
-pyinstaller app.spec --clean
-```
-
-The executable will be created in the `dist/` folder (~78 MB optimized build).
 
 ## How It Works
 
@@ -106,10 +79,8 @@ The application leverages random matrix theory, specifically the Marchenko-Pastu
 ### Denoising Methods
 
 - **Method 1: M-P Basic**: Standard Marchenko-Pastur denoising
-- **Method 2: M-P Auto**: Auto-optimized parameters using SSIM
-- **Method 3: Gen Cov Auto**: Generalized covariance with automatic parameter estimation
-- **Method 4: Gen Cov Manual**: Full manual control over σ², α, and β parameters
-- **Method 5: M-P Std Dev**: Uses standard deviation of top eigenvalues for threshold
+- **Method 2: Gen Cov Auto**: Generalized covariance with automatic parameter estimation
+- **Method 3: Gen Cov Manual**: Full manual control over σ², α, and β parameters
 
 ## Application Structure
 
@@ -154,31 +125,12 @@ The application leverages random matrix theory, specifically the Marchenko-Pastu
 ```
 .
 ├── app.py                 # Main application
-├── app.spec              # PyInstaller configuration
 ├── requirements.txt      # Python dependencies
-├── icon.ico             # Application icon
 ├── .random_matrix/      # User data folder (auto-created)
 │   └── [user folders]   # Uploaded image folders
-└── dist/                # Built executables (after compilation)
-    └── app.exe          # Standalone application
 ```
 
 ## Configuration
-
-### PyInstaller Optimization
-
-The `app.spec` file is optimized to exclude unnecessary libraries:
-- Excludes ML frameworks (torch, tensorflow, transformers)
-- Excludes unused GUI frameworks (tkinter, Qt, matplotlib)
-- Excludes web frameworks (gradio, fastapi)
-- Keeps essential scientific libraries (numpy, scipy, sklearn)
-- Enables UPX compression for smaller executable size
-
-### Build Size Optimization
-
-- **Original build**: ~458 MB
-- **Optimized build**: ~78 MB (83% reduction)
-- Key exclusions documented in app.spec:13-76
 
 ## Troubleshooting
 
@@ -186,15 +138,6 @@ The `app.spec` file is optimized to exclude unnecessary libraries:
 
 **Issue**: Module not found errors
 - **Solution**: Ensure all dependencies are installed: `pip install -r requirements.txt`
-
-**Issue**: GPU acceleration not working
-- **Solution**: Install CuPy with correct CUDA version: `pip install cupy-cuda11x`
-
-**Issue**: Executable fails to run
-- **Solution**: Rebuild using `pyinstaller app.spec --clean`
-
-**Issue**: scipy.sparse or pydoc errors
-- **Solution**: Do not exclude scipy submodules in app.spec (they have complex interdependencies)
 
 ## Theory & References
 
@@ -219,3 +162,4 @@ This project is provided as-is for educational and research purposes.
 - **Python**: 3.12.3
 - **PyInstaller**: 6.11.0
 - **Build Date**: 2025-12-01
+
