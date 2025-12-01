@@ -1,9 +1,12 @@
-streamlit
-pillow
-opencv-python-headless
-numpy
-matplotlib
-plotly
-sympy
-mpmath
-scipy
+# Core Dependencies
+numpy>=1.24.0
+scipy>=1.10.0
+Pillow>=10.0.0
+sympy>=1.12
+pywebview>=4.0.0
+scikit-learn>=1.3.0
+psutil>=5.9.0
+
+# Optional Dependencies
+# cupy-cuda11x>=12.0.0  # Uncomment for GPU acceleration (requires CUDA)
+# playwright>=1.40.0    # Uncomment for browser automation features
