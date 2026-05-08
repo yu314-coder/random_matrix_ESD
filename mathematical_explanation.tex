@@ -1,0 +1,556 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\geometry{margin=1in}
+
+\title{Mathematical Theory of Random Matrix Image Denoising}
+\author{Matrix Analysis Lab}
+\date{\today}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document provides a comprehensive mathematical explanation of image denoising using Random Matrix Theory (RMT), specifically the Marchenko-Pastur (M-P) law and the Generalized Covariance method. We detail the noise model, eigenvalue-based filtering, and the role of SymPy in parameter optimization.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Image denoising is a fundamental problem in image processing. We treat a collection of $n$ grayscale images of size $H \times W$ as a random matrix and apply Random Matrix Theory to separate signal from noise.
+
+\subsection{Problem Setup}
+
+Given:
+\begin{itemize}
+    \item $n$ clean images: $\mathbf{X}_{\text{clean}} \in \mathbb{R}^{n \times H \times W}$
+    \item Each image has $p = H \times W$ pixels
+    \item Aspect ratio: $y = \frac{p}{n}$
+\end{itemize}
+
+Goal: Remove noise while preserving signal structure.
+
+\section{Noise Model: Laplacian Distribution}
+
+\subsection{Why Laplacian Noise?}
+
+Unlike Gaussian noise, Laplacian noise has heavier tails, making it more realistic for modeling outliers in real-world images.
+
+\subsection{Mathematical Definition}
+
+The Laplacian (double exponential) distribution with scale parameter $b$ has probability density function:
+
+\begin{equation}
+p(x) = \frac{1}{2b} \exp\left(-\frac{|x|}{b}\right)
+\end{equation}
+
+Properties:
+\begin{itemize}
+    \item Mean: $\mu = 0$ (zero-mean noise)
+    \item Variance: $\sigma^2 = 2b^2$
+    \item Standard deviation: $\sigma = b\sqrt{2}$
+\end{itemize}
+
+\subsection{Adding Noise to Images}
+
+For each pixel in each image, we add independent Laplacian noise:
+
+\begin{equation}
+\mathbf{X}_{\text{noisy}}[i,h,w] = \mathbf{X}_{\text{clean}}[i,h,w] + \epsilon_{ihw}
+\end{equation}
+
+where $\epsilon_{ihw} \sim \text{Laplace}(0, b)$ are i.i.d. random variables.
+
+Default scale: $b = 0.1$
+
+After adding noise, we clip to valid pixel range:
+\begin{equation}
+\mathbf{X}_{\text{noisy}} = \text{clip}(\mathbf{X}_{\text{clean}} + \mathbf{E}, 0, 1)
+\end{equation}
+
+where $\mathbf{E} \in \mathbb{R}^{n \times H \times W}$ contains i.i.d. Laplacian noise.
+
+\section{Data Matrix Construction}
+
+\subsection{Reshaping Images to Matrix Form}
+
+We convert the batch of noisy images into a data matrix:
+
+\begin{equation}
+\mathbf{X} \in \mathbb{R}^{p \times n}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item Each column $\mathbf{x}_i \in \mathbb{R}^p$ is one image (flattened)
+    \item $p = H \times W$ (number of features/pixels)
+    \item $n$ = number of images (samples)
+\end{itemize}
+
+Mathematically:
+\begin{equation}
+\mathbf{X}[:, i] = \text{flatten}(\mathbf{X}_{\text{noisy}}[i, :, :])
+\end{equation}
+
+\subsection{Centering the Data}
+
+Compute column-wise mean and center:
+
+\begin{equation}
+\boldsymbol{\mu} = \frac{1}{n}\sum_{i=1}^n \mathbf{x}_i \in \mathbb{R}^p
+\end{equation}
+
+\begin{equation}
+\mathbf{X}_c = \mathbf{X} - \boldsymbol{\mu} \mathbf{1}_n^T
+\end{equation}
+
+where $\mathbf{1}_n = (1, 1, \ldots, 1)^T \in \mathbb{R}^n$.
+
+\section{Sample Covariance Matrix}
+
+\subsection{Definition}
+
+The sample covariance matrix is:
+
+\begin{equation}
+\mathbf{S} = \frac{1}{n}\mathbf{X}_c \mathbf{X}_c^T \in \mathbb{R}^{p \times p}
+\end{equation}
+
+This is a symmetric positive semi-definite matrix.
+
+\subsection{Eigenvalue Decomposition}
+
+Compute the eigendecomposition:
+
+\begin{equation}
+\mathbf{S} = \mathbf{V}\mathbf{\Lambda}\mathbf{V}^T
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $\mathbf{V} = [\mathbf{v}_1, \mathbf{v}_2, \ldots, \mathbf{v}_p] \in \mathbb{R}^{p \times p}$ are eigenvectors
+    \item $\mathbf{\Lambda} = \text{diag}(\lambda_1, \lambda_2, \ldots, \lambda_p)$ are eigenvalues
+    \item Sorted in descending order: $\lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_p \geq 0$
+\end{itemize}
+
+\section{Marchenko-Pastur Law}
+
+\subsection{Theoretical Foundation}
+
+For a random matrix with i.i.d. entries of variance $\sigma^2$, as $p, n \to \infty$ with fixed ratio $y = p/n$, the empirical eigenvalue distribution of $\mathbf{S}$ converges to the Marchenko-Pastur distribution.
+
+\begin{theorem}[Marchenko-Pastur Law]
+The support of the limiting eigenvalue distribution is:
+\begin{equation}
+[\lambda_-, \lambda_+] = \left[\sigma^2(1-\sqrt{y})^2, \sigma^2(1+\sqrt{y})^2\right]
+\end{equation}
+\end{theorem}
+
+\subsection{Key Insight}
+
+\begin{itemize}
+    \item Eigenvalues in $[\lambda_-, \lambda_+]$ correspond to \textbf{noise}
+    \item Eigenvalues $> \lambda_+$ correspond to \textbf{signal}
+\end{itemize}
+
+\subsection{Estimating Noise Variance}
+
+We estimate $\sigma^2$ from the bulk eigenvalues:
+
+\begin{enumerate}
+    \item Filter positive eigenvalues: $\{\lambda_i : \lambda_i > 10^{-10}\}$
+    \item Take bottom 50\%: $\lambda_{\text{bulk}}$
+    \item Compute minimum: $\lambda_{\min}^{\text{bulk}} = \min(\lambda_{\text{bulk}})$
+    \item Estimate noise variance:
+    \begin{equation}
+    \hat{\sigma}^2 = \frac{\lambda_{\min}^{\text{bulk}}}{(1-\sqrt{y})^2}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Computing Thresholds}
+
+Upper threshold (signal cutoff):
+\begin{equation}
+\lambda_+ = \hat{\sigma}^2(1 + \sqrt{y})^2
+\end{equation}
+
+Lower threshold (noise floor):
+\begin{equation}
+\lambda_- = \hat{\sigma}^2(1 - \sqrt{y})^2
+\end{equation}
+
+\subsection{Signal Subspace Identification}
+
+Identify signal eigenvalues:
+\begin{equation}
+\mathcal{I}_{\text{signal}} = \{i : \lambda_i > \lambda_+ + \epsilon\}
+\end{equation}
+
+where $\epsilon = 10^{-9}$ is numerical tolerance.
+
+Number of signal components:
+\begin{equation}
+m = |\mathcal{I}_{\text{signal}}|
+\end{equation}
+
+\subsection{Denoising via Projection}
+
+Form signal subspace matrix:
+\begin{equation}
+\mathbf{\Gamma} = [\mathbf{v}_i : i \in \mathcal{I}_{\text{signal}}] \in \mathbb{R}^{p \times m}
+\end{equation}
+
+Project centered data onto signal subspace:
+\begin{equation}
+\tilde{\mathbf{X}}_c = \mathbf{\Gamma}\mathbf{\Gamma}^T \mathbf{X}_c
+\end{equation}
+
+Add back mean:
+\begin{equation}
+\tilde{\mathbf{X}} = \tilde{\mathbf{X}}_c + \boldsymbol{\mu}\mathbf{1}_n^T
+\end{equation}
+
+\subsection{Reconstruction}
+
+Reshape each column back to image:
+\begin{equation}
+\tilde{\mathbf{X}}_{\text{clean}}[i,:,:] = \text{reshape}(\tilde{\mathbf{X}}[:,i], H, W)
+\end{equation}
+
+Clip to valid range:
+\begin{equation}
+\tilde{\mathbf{X}}_{\text{clean}} = \text{clip}(\tilde{\mathbf{X}}_{\text{clean}}, 0, 1)
+\end{equation}
+
+\section{Generalized Covariance Method}
+
+\subsection{Motivation}
+
+The standard M-P law assumes simple noise structure. The generalized method extends this to more complex covariance structures with parameters $\sigma^2$, $a$, and $\beta$.
+
+\subsection{Generalized Support Formula}
+
+The noise eigenvalue support is:
+\begin{equation}
+[\lambda_+^{\text{gen}}, \lambda_-^{\text{gen}}] = \left[\sigma^2 \max_{t>0} g(t), \sigma^2 \min_{t \in (-1/a, 0)} g(t)\right]
+\end{equation}
+
+where $g(t)$ is defined as:
+\begin{equation}
+g(t) = \frac{y\beta(a-1)t + (at+1)((y-1)t-1)}{(at+1)(t^2+t)}
+\end{equation}
+
+\subsection{Parameters}
+
+\begin{itemize}
+    \item $\sigma^2 > 0$: Noise variance scale
+    \item $a > 1$: Spike parameter controlling eigenvalue spread
+    \item $\beta \in (0, 1)$: Mixing parameter controlling distribution shape
+    \item $y = p/n$: Aspect ratio (fixed by data)
+\end{itemize}
+
+\subsection{Computing Support Bounds}
+
+\textbf{Step 1:} Find maximum of $g(t)$ for $t > 0$:
+\begin{equation}
+g_+ = \max_{t > 0} g(t) = -\min_{t > 0} [-g(t)]
+\end{equation}
+
+This is computed numerically via optimization.
+
+\textbf{Step 2:} Find minimum of $g(t)$ for $t \in (-1/a, 0)$:
+\begin{equation}
+g_- = \min_{t \in (-1/a, 0)} g(t)
+\end{equation}
+
+\textbf{Step 3:} Multiply by noise variance:
+\begin{equation}
+\lambda_+^{\text{gen}} = \sigma^2 \cdot g_+, \quad \lambda_-^{\text{gen}} = \sigma^2 \cdot g_-
+\end{equation}
+
+Note: $\lambda_+^{\text{gen}} < \lambda_-^{\text{gen}}$ (inverted compared to M-P law).
+
+\subsection{Signal Identification}
+
+Signal eigenvalues are those exceeding the upper bound:
+\begin{equation}
+\mathcal{I}_{\text{signal}}^{\text{gen}} = \{i : \lambda_i > \lambda_-^{\text{gen}} + \epsilon\}
+\end{equation}
+
+The rest of the denoising process (projection, reconstruction) is identical to M-P law.
+
+\section{Parameter Optimization with SymPy}
+
+\subsection{The Optimization Problem}
+
+We need to find optimal $(\sigma^2, a, \beta)$ such that the lower bound matches the observed minimum eigenvalue.
+
+\textbf{Objective:} Minimize
+\begin{equation}
+\mathcal{L}(\sigma^2, a, \beta) = \left(\sigma^2 \cdot g_+ - \lambda_{\min}^{\text{bulk}}\right)^2
+\end{equation}
+
+subject to:
+\begin{align}
+\sigma^2 &> 0 \\
+a &> 1 \\
+\beta &\in (0, 1)
+\end{align}
+
+\subsection{How SymPy Works}
+
+\textbf{SymPy} is a Python library for symbolic mathematics. Here's how it's used in optimization:
+
+\subsubsection{Step 1: Symbolic Function Definition}
+
+We define $g(t)$ symbolically (though in practice we use numerical evaluation):
+
+\begin{verbatim}
+from scipy.optimize import minimize_scalar, minimize
+
+def g(t):
+    numerator = y * beta * (a - 1) * t + (a*t + 1) * ((y-1)*t - 1)
+    denominator = (a*t + 1) * (t**2 + t)
+    return numerator / denominator
+\end{verbatim}
+
+\subsubsection{Step 2: Nested Optimization}
+
+For each candidate $(\sigma^2, a, \beta)$:
+
+\begin{enumerate}
+    \item \textbf{Inner optimization:} Find $g_+$
+    \begin{equation}
+    g_+ = \max_{t \in [10^{-6}, 100]} g(t)
+    \end{equation}
+
+    Implemented as:
+    \begin{verbatim}
+result_max = minimize_scalar(
+    lambda t: -g(t),
+    bounds=(1e-6, 100),
+    method='bounded'
+)
+g_plus = -result_max.fun
+    \end{verbatim}
+
+    \item \textbf{Compute lower bound:}
+    \begin{equation}
+    \text{lower\_bound} = \sigma^2 \cdot g_+
+    \end{equation}
+
+    \item \textbf{Evaluate objective:}
+    \begin{equation}
+    \mathcal{L} = (\text{lower\_bound} - \lambda_{\min}^{\text{bulk}})^2
+    \end{equation}
+\end{enumerate}
+
+\subsubsection{Step 3: Outer Optimization}
+
+Use L-BFGS-B algorithm to minimize $\mathcal{L}$:
+
+\begin{verbatim}
+# Initial guess
+x0 = [1.0, 2.0, 0.5]  # [sigma2, a, beta]
+
+# Bounds
+bounds = [(0.01, 10.0), (1.01, 10.0), (0.01, 0.99)]
+
+# Optimize
+result = minimize(
+    objective,
+    x0,
+    method='L-BFGS-B',
+    bounds=bounds,
+    options={'maxiter': 200, 'ftol': 1e-8}
+)
+
+sigma2_opt, a_opt, beta_opt = result.x
+\end{verbatim}
+
+\subsection{Why SymPy is Useful}
+
+Although we use \texttt{scipy.optimize} for numerical optimization, SymPy could be used for:
+
+\begin{enumerate}
+    \item \textbf{Symbolic derivatives:} Compute $\frac{\partial g}{\partial t}$ analytically
+    \begin{verbatim}
+import sympy as sp
+t = sp.Symbol('t')
+g_sym = (y*beta*(a-1)*t + (a*t+1)*((y-1)*t-1)) / ((a*t+1)*(t**2+t))
+g_prime = sp.diff(g_sym, t)
+    \end{verbatim}
+
+    \item \textbf{Critical point analysis:} Solve $\frac{\partial g}{\partial t} = 0$ exactly
+    \begin{verbatim}
+critical_points = sp.solve(g_prime, t)
+    \end{verbatim}
+
+    \item \textbf{Gradient computation:} For faster optimization
+    \begin{equation}
+    \nabla_{\theta} \mathcal{L} = 2(\sigma^2 g_+ - \lambda_{\min}^{\text{bulk}}) \cdot \nabla_{\theta}[\sigma^2 g_+]
+    \end{equation}
+    where $\theta = (\sigma^2, a, \beta)$.
+\end{enumerate}
+
+\subsection{Optimization Algorithm Summary}
+
+\begin{algorithm}
+\caption{Generalized Parameter Optimization}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Eigenvalues $\{\lambda_i\}$, aspect ratio $y$
+\State Filter positive eigenvalues: $\lambda_{\text{pos}}$
+\State Extract bottom 50\%: $\lambda_{\text{bulk}}$
+\State $\lambda_{\min}^{\text{bulk}} \gets \min(\lambda_{\text{bulk}})$
+\State Initialize: $\sigma^2_0 = 1.0$, $a_0 = 2.0$, $\beta_0 = 0.5$
+\For{iteration $= 1, 2, \ldots, 200$}
+    \State Evaluate $g_+(\sigma^2, a, \beta)$ via inner optimization
+    \State Compute $\mathcal{L} = (\sigma^2 \cdot g_+ - \lambda_{\min}^{\text{bulk}})^2$
+    \State Update $(\sigma^2, a, \beta)$ using L-BFGS-B step
+    \If{$|\mathcal{L}| < 10^{-8}$}
+        \State \textbf{break} (converged)
+    \EndIf
+\EndFor
+\State \textbf{Return:} $(\sigma^2_{\text{opt}}, a_{\text{opt}}, \beta_{\text{opt}})$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Complete Denoising Pipeline}
+
+\subsection{Algorithm Overview}
+
+\begin{algorithm}
+\caption{Random Matrix Image Denoising}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Clean images $\mathbf{X}_{\text{clean}} \in \mathbb{R}^{n \times H \times W}$, noise scale $b$, method
+\State \textbf{Output:} Denoised images $\tilde{\mathbf{X}}_{\text{clean}}$
+\State
+\State // \textbf{Step 1: Add Laplacian Noise}
+\State $\mathbf{E} \sim \text{Laplace}(0, b)^{n \times H \times W}$
+\State $\mathbf{X}_{\text{noisy}} \gets \text{clip}(\mathbf{X}_{\text{clean}} + \mathbf{E}, 0, 1)$
+\State
+\State // \textbf{Step 2: Reshape to Matrix}
+\State $\mathbf{X} \gets \text{images\_to\_matrix}(\mathbf{X}_{\text{noisy}})$ \Comment{Shape: $(p, n)$}
+\State $p \gets H \times W$, $y \gets p/n$
+\State
+\State // \textbf{Step 3: Center Data}
+\State $\boldsymbol{\mu} \gets \frac{1}{n}\mathbf{X}\mathbf{1}_n$
+\State $\mathbf{X}_c \gets \mathbf{X} - \boldsymbol{\mu}\mathbf{1}_n^T$
+\State
+\State // \textbf{Step 4: Compute Covariance}
+\State $\mathbf{S} \gets \frac{1}{n}\mathbf{X}_c \mathbf{X}_c^T$
+\State
+\State // \textbf{Step 5: Eigendecomposition}
+\State $(\mathbf{\Lambda}, \mathbf{V}) \gets \text{eigh}(\mathbf{S})$
+\State Sort eigenvalues/vectors in descending order
+\State
+\State // \textbf{Step 6: Estimate Noise and Find Signal}
+\If{method = "M-P Law"}
+    \State $\hat{\sigma}^2 \gets \frac{\min(\text{bottom 50\%}(\lambda_{\text{pos}}))}{(1-\sqrt{y})^2}$
+    \State $\lambda_+ \gets \hat{\sigma}^2(1+\sqrt{y})^2$
+    \State $\mathcal{I}_{\text{signal}} \gets \{i : \lambda_i > \lambda_+ + 10^{-9}\}$
+\ElsIf{method = "Generalized Covariance"}
+    \State $(\sigma^2, a, \beta) \gets \text{optimize\_parameters}(\{\lambda_i\}, y)$
+    \State $g_+ \gets \max_{t>0} g(t; a, \beta, y)$
+    \State $g_- \gets \min_{t \in (-1/a,0)} g(t; a, \beta, y)$
+    \State $\lambda_+^{\text{gen}} \gets \sigma^2 \cdot g_+$
+    \State $\lambda_-^{\text{gen}} \gets \sigma^2 \cdot g_-$
+    \State $\mathcal{I}_{\text{signal}} \gets \{i : \lambda_i > \lambda_-^{\text{gen}} + 10^{-9}\}$
+\EndIf
+\State
+\State // \textbf{Step 7: Project onto Signal Subspace}
+\State $\mathbf{\Gamma} \gets [\mathbf{v}_i : i \in \mathcal{I}_{\text{signal}}]$
+\State $\tilde{\mathbf{X}}_c \gets \mathbf{\Gamma}\mathbf{\Gamma}^T \mathbf{X}_c$
+\State $\tilde{\mathbf{X}} \gets \tilde{\mathbf{X}}_c + \boldsymbol{\mu}\mathbf{1}_n^T$
+\State
+\State // \textbf{Step 8: Reshape Back to Images}
+\State $\tilde{\mathbf{X}}_{\text{clean}} \gets \text{matrix\_to\_images}(\tilde{\mathbf{X}}, H, W)$
+\State $\tilde{\mathbf{X}}_{\text{clean}} \gets \text{clip}(\tilde{\mathbf{X}}_{\text{clean}}, 0, 1)$
+\State
+\State \textbf{return} $\tilde{\mathbf{X}}_{\text{clean}}$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Summary of Key Formulas}
+
+\subsection{Noise Model}
+\begin{equation}
+\epsilon \sim \text{Laplace}(0, b), \quad \mathbf{X}_{\text{noisy}} = \text{clip}(\mathbf{X}_{\text{clean}} + \mathbf{E}, 0, 1)
+\end{equation}
+
+\subsection{Marchenko-Pastur Method}
+\begin{align}
+\hat{\sigma}^2 &= \frac{\lambda_{\min}^{\text{bulk}}}{(1-\sqrt{y})^2} \\
+\lambda_+ &= \hat{\sigma}^2(1+\sqrt{y})^2 \\
+\mathcal{I}_{\text{signal}} &= \{i : \lambda_i > \lambda_+\}
+\end{align}
+
+\subsection{Generalized Covariance Method}
+\begin{align}
+g(t) &= \frac{y\beta(a-1)t + (at+1)((y-1)t-1)}{(at+1)(t^2+t)} \\
+g_+ &= \max_{t>0} g(t), \quad g_- = \min_{t \in (-1/a,0)} g(t) \\
+\lambda_+^{\text{gen}} &= \sigma^2 g_+, \quad \lambda_-^{\text{gen}} = \sigma^2 g_- \\
+\mathcal{I}_{\text{signal}} &= \{i : \lambda_i > \lambda_-^{\text{gen}}\}
+\end{align}
+
+\subsection{Denoising Projection}
+\begin{align}
+\mathbf{\Gamma} &= [\mathbf{v}_i : i \in \mathcal{I}_{\text{signal}}] \\
+\tilde{\mathbf{X}} &= \mathbf{\Gamma}\mathbf{\Gamma}^T (\mathbf{X} - \boldsymbol{\mu}\mathbf{1}_n^T) + \boldsymbol{\mu}\mathbf{1}_n^T
+\end{align}
+
+\section{Computational Complexity}
+
+\subsection{Time Complexity}
+
+For $n$ images of size $H \times W$ with $p = HW$:
+
+\begin{itemize}
+    \item \textbf{Adding noise:} $O(nHW) = O(np)$
+    \item \textbf{Reshaping:} $O(np)$
+    \item \textbf{Centering:} $O(np)$
+    \item \textbf{Covariance:} $O(np^2)$
+    \item \textbf{Eigendecomposition:} $O(p^3)$ (dominant cost)
+    \item \textbf{Projection:} $O(npm)$ where $m$ = number of signal components
+    \item \textbf{Optimization (Generalized):} $O(K \cdot I)$ where $K$ = iterations, $I$ = inner optimization cost
+\end{itemize}
+
+\textbf{Total:} $O(p^3 + np^2)$ dominated by eigendecomposition.
+
+\subsection{Space Complexity}
+
+\begin{itemize}
+    \item \textbf{Data matrix:} $O(np)$
+    \item \textbf{Covariance matrix:} $O(p^2)$
+    \item \textbf{Eigenvectors:} $O(p^2)$
+\end{itemize}
+
+\textbf{Total:} $O(p^2 + np)$
+
+\section{Conclusion}
+
+This document presented the complete mathematical theory behind random matrix image denoising:
+
+\begin{enumerate}
+    \item \textbf{Laplacian noise model} with heavy-tailed distribution
+    \item \textbf{Marchenko-Pastur law} for simple i.i.d. noise
+    \item \textbf{Generalized covariance method} for complex noise structures
+    \item \textbf{SymPy-based optimization} for automatic parameter tuning
+\end{enumerate}
+
+The key insight is that Random Matrix Theory provides a principled way to separate signal from noise in the eigenvalue spectrum, enabling effective denoising through subspace projection.
+
+\end{document}

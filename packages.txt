@@ -1,4 +1,0 @@
-libopencv-dev
-python3-opencv
-build-essential
-cmake

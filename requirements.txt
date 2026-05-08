@@ -1,9 +1,8 @@
-streamlit
-pillow
-opencv-python-headless
 numpy
-matplotlib
 plotly
-sympy
-mpmath
 scipy
+pywebview
+tqdm
+Pillow
+playwright
+rmt-denoise

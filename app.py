@@ -1,1615 +1,88 @@
-import streamlit as st
-import subprocess
-import os
 import json
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import sympy as sp
-from PIL import Image
-import time
+import os
 import io
-import sys
-import tempfile
-import platform
-from sympy import symbols, solve, I, re, im, Poly, simplify, N
-import mpmath
+import base64
+import atexit
+import shutil
+from pathlib import Path
+import numpy as np
 from scipy.stats import gaussian_kde
+from scipy.ndimage import gaussian_filter
+from scipy.optimize import minimize, minimize_scalar
+from PIL import Image
+import rmt_denoise
+import webview
+from tqdm import tqdm
+import threading
+import time
 
-# Set page config with wider layout
-st.set_page_config(
-    page_title="Matrix Analysis Dashboard",
-    page_icon="chart",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
-# Apply custom CSS for a modern, clean dashboard layout
-st.markdown("""
-<style>
-    /* Main styling */
-    .main {
-        background-color: #fafafa;
-    }
-    
-    /* Header styling */
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #0e1117;
-        text-align: center;
-        margin-bottom: 1.5rem;
-        padding-bottom: 1rem;
-        border-bottom: 2px solid #f0f2f6;
-    }
-    
-    /* Container styling */
-    .dashboard-container {
-        background-color: white;
-        padding: 1.8rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        margin-bottom: 1.8rem;
-        border: 1px solid #f0f2f6;
-    }
-    
-    /* Panel headers */
-    .panel-header {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-bottom: 1.2rem;
-        color: #0e1117;
-        border-left: 4px solid #FF4B4B;
-        padding-left: 10px;
-    }
-    
-    /* Parameter container */
-    .parameter-container {
-        background-color: #f9fafb;
-        padding: 15px;
-        border-radius: 8px;
-        margin-bottom: 15px;
-        border: 1px solid #f0f2f6;
-    }
-    
-    /* Math box */
-    .math-box {
-        background-color: #f9fafb;
-        border-left: 3px solid #FF4B4B;
-        padding: 12px;
-        margin: 10px 0;
-        border-radius: 4px;
-    }
-    
-    /* Results container */
-    .results-container {
-        margin-top: 20px;
-    }
-    
-    /* Explanation box */
-    .explanation-box {
-        background-color: #f2f7ff;
-        padding: 15px;
-        border-radius: 8px;
-        margin-top: 20px;
-        border-left: 3px solid #4B77FF;
-    }
-    
-    /* Progress indicator */
-    .progress-container {
-        padding: 10px;
-        border-radius: 8px;
-        background-color: #f9fafb;
-        margin-bottom: 10px;
-    }
-    
-    /* Stats container */
-    .stats-box {
-        background-color: #f9fafb;
-        padding: 15px;
-        border-radius: 8px;
-        margin-top: 10px;
-    }
-    
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        height: 40px;
-        white-space: pre-wrap;
-        background-color: #f0f2f6;
-        border-radius: 8px 8px 0 0;
-        padding: 10px 16px;
-        font-size: 14px;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: #FF4B4B !important;
-        color: white !important;
-    }
-    
-    /* Button styling */
-    .stButton button {
-        background-color: #FF4B4B;
-        color: white;
-        font-weight: 500;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        transition: background-color 0.3s;
-    }
-    
-    .stButton button:hover {
-        background-color: #E03131;
-    }
-    
-    /* Input fields */
-    div[data-baseweb="input"] {
-        border-radius: 6px;
-    }
-    
-    /* Footer */
-    .footer {
-        font-size: 0.8rem;
-        color: #6c757d;
-        text-align: center;
-        margin-top: 2rem;
-        padding-top: 1rem;
-        border-top: 1px solid #f0f2f6;
-    }
-</style>
-""", unsafe_allow_html=True)
+# --------- Core math / plotting helpers (pure Python, no C++) --------- #
+def solve_cubic_numpy(a, b, c, d):
+    """Solve ax^3 + bx^2 + cx + d = 0 using NumPy polynomial solver."""
+    epsilon = 1e-12
 
-# Dashboard Header
-st.markdown('<h1 class="main-header">Matrix Analysis Dashboard</h1>', unsafe_allow_html=True)
-
-# Create output directory in the current working directory
-current_dir = os.getcwd()
-output_dir = os.path.join(current_dir, "output")
-os.makedirs(output_dir, exist_ok=True)
-
-# Path to the C++ source file and executable
-cpp_file = os.path.join(current_dir, "app.cpp")
-executable = os.path.join(current_dir, "eigen_analysis")
-if platform.system() == "Windows":
-    executable += ".exe"
-
-# Helper function for running commands with better debugging
-def run_command(cmd, show_output=True, timeout=None):
-    cmd_str = " ".join(cmd)
-    if show_output:
-        st.code(f"Running command: {cmd_str}", language="bash")
-    
-    # Run the command
-    try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=timeout
-        )
-        
-        if result.returncode == 0:
-            if show_output:
-                st.success("Command completed successfully.")
-                if result.stdout and show_output:
-                    with st.expander("Command Output"):
-                        st.code(result.stdout)
-            return True, result.stdout, result.stderr
-        else:
-            if show_output:
-                st.error(f"Command failed with return code {result.returncode}")
-                st.error(f"Command: {cmd_str}")
-                st.error(f"Error output: {result.stderr}")
-            return False, result.stdout, result.stderr
-    
-    except subprocess.TimeoutExpired:
-        if show_output:
-            st.error(f"Command timed out after {timeout} seconds")
-        return False, "", f"Command timed out after {timeout} seconds"
-    except Exception as e:
-        if show_output:
-            st.error(f"Error executing command: {str(e)}")
-        return False, "", str(e)
-
-# Helper function to safely convert JSON values to numeric 
-def safe_convert_to_numeric(value):
-    if isinstance(value, (int, float)):
-        return value
-    elif isinstance(value, str):
-        # Handle string values that represent special values
-        if value.lower() == "nan" or value == "\"nan\"":
-            return np.nan
-        elif value.lower() == "infinity" or value == "\"infinity\"":
-            return np.inf
-        elif value.lower() == "-infinity" or value == "\"-infinity\"":
-            return -np.inf
-        else:
-            try:
-                return float(value)
-            except:
-                return value
-    else:
-        return value
-
-# Check if C++ source file exists
-if not os.path.exists(cpp_file):
-    # Create the C++ file with our improved cubic solver
-    with open(cpp_file, "w") as f:
-        st.warning(f"Creating new C++ source file at: {cpp_file}")
-        
-        # The improved C++ code with better cubic solver (same as before)
-        f.write('''
-// app.cpp - Modified version with improved cubic solver
-#include <opencv2/opencv.hpp>
-#include <algorithm>
-#include <cmath>
-#include <iostream>
-#include <iomanip>
-#include <numeric>
-#include <random>
-#include <vector>
-#include <limits>
-#include <sstream>
-#include <string>
-#include <fstream>
-#include <complex>
-#include <stdexcept>
-
-// Struct to hold cubic equation roots
-struct CubicRoots {
-    std::complex<double> root1;
-    std::complex<double> root2;
-    std::complex<double> root3;
-};
-
-// Function to solve cubic equation: az^3 + bz^2 + cz + d = 0
-// Improved implementation based on ACM TOMS Algorithm 954
-CubicRoots solveCubic(double a, double b, double c, double d) {
-    // Declare roots structure at the beginning of the function
-    CubicRoots roots;
-    
-    // Constants for numerical stability
-    const double epsilon = 1e-14;
-    const double zero_threshold = 1e-10;
-    
-    // Handle special case for a == 0 (quadratic)
-    if (std::abs(a) < epsilon) {
-        // Quadratic equation handling (unchanged)
-        if (std::abs(b) < epsilon) {  // Linear equation or constant
-            if (std::abs(c) < epsilon) {  // Constant - no finite roots
-                roots.root1 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
-                roots.root2 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
-                roots.root3 = std::complex<double>(std::numeric_limits<double>::quiet_NaN(), 0.0);
-            } else {  // Linear equation
-                roots.root1 = std::complex<double>(-d / c, 0.0);
-                roots.root2 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
-                roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
-            }
-            return roots;
-        }
-        
-        double discriminant = c * c - 4.0 * b * d;
-        if (discriminant >= 0) {
-            double sqrtDiscriminant = std::sqrt(discriminant);
-            roots.root1 = std::complex<double>((-c + sqrtDiscriminant) / (2.0 * b), 0.0);
-            roots.root2 = std::complex<double>((-c - sqrtDiscriminant) / (2.0 * b), 0.0);
-            roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
-        } else {
-            double real = -c / (2.0 * b);
-            double imag = std::sqrt(-discriminant) / (2.0 * b);
-            roots.root1 = std::complex<double>(real, imag);
-            roots.root2 = std::complex<double>(real, -imag);
-            roots.root3 = std::complex<double>(std::numeric_limits<double>::infinity(), 0.0);
-        }
-        return roots;
-    }
-
-    // Handle special case when d is zero - one root is zero
-    if (std::abs(d) < epsilon) {
-        // One root is exactly zero
-        roots.root1 = std::complex<double>(0.0, 0.0);
-        
-        // Solve the quadratic: az^2 + bz + c = 0
-        double quadDiscriminant = b * b - 4.0 * a * c;
-        if (quadDiscriminant >= 0) {
-            double sqrtDiscriminant = std::sqrt(quadDiscriminant);
-            double r1 = (-b + sqrtDiscriminant) / (2.0 * a);
-            double r2 = (-b - sqrtDiscriminant) / (2.0 * a);
-            
-            // Ensure one positive and one negative root
-            if (r1 > 0 && r2 > 0) {
-                // Both positive, make one negative
-                roots.root2 = std::complex<double>(r1, 0.0);
-                roots.root3 = std::complex<double>(-std::abs(r2), 0.0);
-            } else if (r1 < 0 && r2 < 0) {
-                // Both negative, make one positive
-                roots.root2 = std::complex<double>(-std::abs(r1), 0.0);
-                roots.root3 = std::complex<double>(std::abs(r2), 0.0);
-            } else {
-                // Already have one positive and one negative
-                roots.root2 = std::complex<double>(r1, 0.0);
-                roots.root3 = std::complex<double>(r2, 0.0);
-            }
-        } else {
-            double real = -b / (2.0 * a);
-            double imag = std::sqrt(-quadDiscriminant) / (2.0 * a);
-            roots.root2 = std::complex<double>(real, imag);
-            roots.root3 = std::complex<double>(real, -imag);
-        }
-        return roots;
-    }
-
-    // Normalize the equation: z^3 + (b/a)z^2 + (c/a)z + (d/a) = 0
-    double p = b / a;
-    double q = c / a;
-    double r = d / a;
-
-    // Scale coefficients to improve numerical stability
-    double scale = 1.0;
-    double maxCoeff = std::max({std::abs(p), std::abs(q), std::abs(r)});
-    if (maxCoeff > 1.0) {
-        scale = 1.0 / maxCoeff;
-        p *= scale;
-        q *= scale * scale;
-        r *= scale * scale * scale;
-    }
-
-    // Calculate the discriminant for the cubic equation
-    double discriminant = 18 * p * q * r - 4 * p * p * p * r + p * p * q * q - 4 * q * q * q - 27 * r * r;
-
-    // Apply a depression transformation: z = t - p/3
-    // This gives t^3 + pt + q = 0 (depressed cubic)
-    double p1 = q - p * p / 3.0;
-    double q1 = r - p * q / 3.0 + 2.0 * p * p * p / 27.0;
-    
-    // The depression shift
-    double shift = p / 3.0;
-    
-    // Cardano's formula parameters
-    double delta0 = p1;
-    double delta1 = q1;
-    
-    // For tracking if we need to force the pattern
-    bool forcePattern = false;
-    
-    // Check if discriminant is close to zero (multiple roots)
-    if (std::abs(discriminant) < zero_threshold) {
-        forcePattern = true;
-        
-        if (std::abs(delta0) < zero_threshold && std::abs(delta1) < zero_threshold) {
-            // Triple root case
-            roots.root1 = std::complex<double>(-shift, 0.0);
-            roots.root2 = std::complex<double>(-shift, 0.0);
-            roots.root3 = std::complex<double>(-shift, 0.0);
-            return roots;
-        }
-        
-        if (std::abs(delta0) < zero_threshold) {
-            // Delta0 ≈ 0: One double root and one simple root
-            double simple = std::cbrt(-delta1);
-            double doubleRoot = -simple/2 - shift;
-            double simpleRoot = simple - shift;
-            
-            // Force pattern - one zero, one positive, one negative
-            roots.root1 = std::complex<double>(0.0, 0.0);
-            
-            if (doubleRoot > 0) {
-                roots.root2 = std::complex<double>(doubleRoot, 0.0);
-                roots.root3 = std::complex<double>(-std::abs(simpleRoot), 0.0);
-            } else {
-                roots.root2 = std::complex<double>(-std::abs(doubleRoot), 0.0);
-                roots.root3 = std::complex<double>(std::abs(simpleRoot), 0.0);
-            }
-            return roots;
-        }
-        
-        // One simple root and one double root
-        double simple = delta1 / delta0;
-        double doubleRoot = -delta0/3 - shift;
-        double simpleRoot = simple - shift;
-            
-        // Force pattern - one zero, one positive, one negative
-        roots.root1 = std::complex<double>(0.0, 0.0);
-        
-        if (doubleRoot > 0) {
-            roots.root2 = std::complex<double>(doubleRoot, 0.0);
-            roots.root3 = std::complex<double>(-std::abs(simpleRoot), 0.0);
-        } else {
-            roots.root2 = std::complex<double>(-std::abs(doubleRoot), 0.0);
-            roots.root3 = std::complex<double>(std::abs(simpleRoot), 0.0);
-        }
-        return roots;
-    }
-    
-    // Handle case with three real roots (discriminant > 0)
-    if (discriminant > 0) {
-        // Using trigonometric solution for three real roots
-        double A = std::sqrt(-4.0 * p1 / 3.0);
-        double B = -std::acos(-4.0 * q1 / (A * A * A)) / 3.0;
-        
-        double root1 = A * std::cos(B) - shift;
-        double root2 = A * std::cos(B + 2.0 * M_PI / 3.0) - shift;
-        double root3 = A * std::cos(B + 4.0 * M_PI / 3.0) - shift;
-        
-        // Check for roots close to zero
-        if (std::abs(root1) < zero_threshold) root1 = 0.0;
-        if (std::abs(root2) < zero_threshold) root2 = 0.0;
-        if (std::abs(root3) < zero_threshold) root3 = 0.0;
-
-        // Check if we already have the desired pattern
-        int zeros = 0, positives = 0, negatives = 0;
-        if (root1 == 0.0) zeros++;
-        else if (root1 > 0) positives++;
-        else negatives++;
-        
-        if (root2 == 0.0) zeros++;
-        else if (root2 > 0) positives++;
-        else negatives++;
-        
-        if (root3 == 0.0) zeros++;
-        else if (root3 > 0) positives++;
-        else negatives++;
-        
-        // If we don't have the pattern, force it
-        if (!((zeros == 1 && positives == 1 && negatives == 1) || zeros == 3)) {
-            forcePattern = true;
-            // Sort roots to make manipulation easier
-            std::vector<double> sorted_roots = {root1, root2, root3};
-            std::sort(sorted_roots.begin(), sorted_roots.end());
-            
-            // Force pattern: one zero, one positive, one negative
-            roots.root1 = std::complex<double>(-std::abs(sorted_roots[0]), 0.0); // Make the smallest negative
-            roots.root2 = std::complex<double>(0.0, 0.0);                       // Set middle to zero
-            roots.root3 = std::complex<double>(std::abs(sorted_roots[2]), 0.0); // Make the largest positive
-            return roots;
-        }
-        
-        // We have the right pattern, assign the roots
-        roots.root1 = std::complex<double>(root1, 0.0);
-        roots.root2 = std::complex<double>(root2, 0.0);
-        roots.root3 = std::complex<double>(root3, 0.0);
-        return roots;
-    }
-    
-    // One real root and two complex conjugate roots
-    double C, D;
-    if (q1 >= 0) {
-        C = std::cbrt(q1 + std::sqrt(q1*q1 - 4.0*p1*p1*p1/27.0)/2.0);
-    } else {
-        C = std::cbrt(q1 - std::sqrt(q1*q1 - 4.0*p1*p1*p1/27.0)/2.0);
-    }
-    
-    if (std::abs(C) < epsilon) {
-        D = 0;
-    } else {
-        D = -p1 / (3.0 * C);
-    }
-    
-    // The real root
-    double realRoot = C + D - shift;
-    
-    // The two complex conjugate roots
-    double realPart = -(C + D) / 2.0 - shift;
-    double imagPart = std::sqrt(3.0) * (C - D) / 2.0;
-    
-    // Check if real root is close to zero
-    if (std::abs(realRoot) < zero_threshold) {
-        // Already have one zero root
-        roots.root1 = std::complex<double>(0.0, 0.0);
-        roots.root2 = std::complex<double>(realPart, imagPart);
-        roots.root3 = std::complex<double>(realPart, -imagPart);
-    } else {
-        // Force the desired pattern - one zero, one positive, one negative
-        if (forcePattern) {
-            roots.root1 = std::complex<double>(0.0, 0.0);             // Force one root to be zero
-            if (realRoot > 0) {
-                // Real root is positive, make complex part negative
-                roots.root2 = std::complex<double>(realRoot, 0.0);
-                roots.root3 = std::complex<double>(-std::abs(realPart), 0.0);
-            } else {
-                // Real root is negative, need a positive root
-                roots.root2 = std::complex<double>(-realRoot, 0.0);  // Force to positive
-                roots.root3 = std::complex<double>(realRoot, 0.0);   // Keep original negative
-            }
-        } else {
-            // Standard assignment
-            roots.root1 = std::complex<double>(realRoot, 0.0);
-            roots.root2 = std::complex<double>(realPart, imagPart);
-            roots.root3 = std::complex<double>(realPart, -imagPart);
-        }
-    }
-    
-    return roots;
-}
-
-// Function to compute the theoretical max value
-double compute_theoretical_max(double a, double y, double beta, int grid_points, double tolerance) {
-    auto f = [a, y, beta](double k) -> double {
-        return (y * beta * (a - 1) * k + (a * k + 1) * ((y - 1) * k - 1)) / 
-               ((a * k + 1) * (k * k + k));
-    };
-    
-    // Use numerical optimization to find the maximum
-    // Grid search followed by golden section search
-    double best_k = 1.0;
-    double best_val = f(best_k);
-    
-    // Initial grid search over a wide range
-    const int num_grid_points = grid_points;
-    for (int i = 0; i < num_grid_points; ++i) {
-        double k = 0.01 + 100.0 * i / (num_grid_points - 1); // From 0.01 to 100
-        double val = f(k);
-        if (val > best_val) {
-            best_val = val;
-            best_k = k;
-        }
-    }
-    
-    // Refine with golden section search
-    double a_gs = std::max(0.01, best_k / 10.0);
-    double b_gs = best_k * 10.0;
-    const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
-    
-    double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
-    double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
-    
-    while (std::abs(b_gs - a_gs) > tolerance) {
-        if (f(c_gs) > f(d_gs)) {
-            b_gs = d_gs;
-            d_gs = c_gs;
-            c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
-        } else {
-            a_gs = c_gs;
-            c_gs = d_gs;
-            d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
-        }
-    }
-    
-    // Return the value without multiplying by y (as per correction)
-    return f((a_gs + b_gs) / 2.0);
-}
-
-// Function to compute the theoretical min value
-double compute_theoretical_min(double a, double y, double beta, int grid_points, double tolerance) {
-    auto f = [a, y, beta](double t) -> double {
-        return (y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)) / 
-               ((a * t + 1) * (t * t + t));
-    };
-    
-    // Use numerical optimization to find the minimum
-    // Grid search followed by golden section search
-    double best_t = -0.5 / a; // Midpoint of (-1/a, 0)
-    double best_val = f(best_t);
-    
-    // Initial grid search over the range (-1/a, 0)
-    const int num_grid_points = grid_points;
-    for (int i = 1; i < num_grid_points; ++i) {
-        // From slightly above -1/a to slightly below 0
-        double t = -0.999/a + 0.998/a * i / (num_grid_points - 1);
-        if (t >= 0 || t <= -1.0/a) continue; // Ensure t is in range (-1/a, 0)
-        
-        double val = f(t);
-        if (val < best_val) {
-            best_val = val;
-            best_t = t;
-        }
-    }
-    
-    // Refine with golden section search
-    double a_gs = -0.999/a; // Slightly above -1/a
-    double b_gs = -0.001/a; // Slightly below 0
-    const double golden_ratio = (1.0 + std::sqrt(5.0)) / 2.0;
-    
-    double c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
-    double d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
-    
-    while (std::abs(b_gs - a_gs) > tolerance) {
-        if (f(c_gs) < f(d_gs)) {
-            b_gs = d_gs;
-            d_gs = c_gs;
-            c_gs = b_gs - (b_gs - a_gs) / golden_ratio;
-        } else {
-            a_gs = c_gs;
-            c_gs = d_gs;
-            d_gs = a_gs + (b_gs - a_gs) / golden_ratio;
-        }
-    }
-    
-    // Return the value without multiplying by y (as per correction)
-    return f((a_gs + b_gs) / 2.0);
-}
-
-// Function to save data as JSON
-bool save_as_json(const std::string& filename, 
-                 const std::vector<double>& beta_values,
-                 const std::vector<double>& max_eigenvalues,
-                 const std::vector<double>& min_eigenvalues,
-                 const std::vector<double>& theoretical_max_values,
-                 const std::vector<double>& theoretical_min_values) {
-    
-    std::ofstream outfile(filename);
-    
-    if (!outfile.is_open()) {
-        std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
-        return false;
-    }
-    
-    // Helper function to format floating point values safely for JSON
-    auto formatJsonValue = [](double value) -> std::string {
-        if (std::isnan(value)) {
-            return "\"NaN\""; // JSON doesn't support NaN, so use string
-        } else if (std::isinf(value)) {
-            if (value > 0) {
-                return "\"Infinity\""; // JSON doesn't support Infinity, so use string
-            } else {
-                return "\"-Infinity\""; // JSON doesn't support -Infinity, so use string
-            }
-        } else {
-            // Use a fixed precision to avoid excessively long numbers
-            std::ostringstream oss;
-            oss << std::setprecision(15) << value;
-            return oss.str();
-        }
-    };
-    
-    // Start JSON object
-    outfile << "{\n";
-    
-    // Write beta values
-    outfile << "  \"beta_values\": [";
-    for (size_t i = 0; i < beta_values.size(); ++i) {
-        outfile << formatJsonValue(beta_values[i]);
-        if (i < beta_values.size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write max eigenvalues
-    outfile << "  \"max_eigenvalues\": [";
-    for (size_t i = 0; i < max_eigenvalues.size(); ++i) {
-        outfile << formatJsonValue(max_eigenvalues[i]);
-        if (i < max_eigenvalues.size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write min eigenvalues
-    outfile << "  \"min_eigenvalues\": [";
-    for (size_t i = 0; i < min_eigenvalues.size(); ++i) {
-        outfile << formatJsonValue(min_eigenvalues[i]);
-        if (i < min_eigenvalues.size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write theoretical max values
-    outfile << "  \"theoretical_max\": [";
-    for (size_t i = 0; i < theoretical_max_values.size(); ++i) {
-        outfile << formatJsonValue(theoretical_max_values[i]);
-        if (i < theoretical_max_values.size() - 1) outfile << ", ";
-    }
-    outfile << "],\n";
-    
-    // Write theoretical min values
-    outfile << "  \"theoretical_min\": [";
-    for (size_t i = 0; i < theoretical_min_values.size(); ++i) {
-        outfile << formatJsonValue(theoretical_min_values[i]);
-        if (i < theoretical_min_values.size() - 1) outfile << ", ";
-    }
-    outfile << "]\n";
-    
-    // Close JSON object
-    outfile << "}\n";
-    
-    outfile.close();
-    return true;
-}
-
-// Eigenvalue analysis function
-bool eigenvalueAnalysis(int n, int p, double a, double y, int fineness, 
-                     int theory_grid_points, double theory_tolerance, 
-                     const std::string& output_file) {
-    
-    std::cout << "Running eigenvalue analysis with parameters: n = " << n << ", p = " << p 
-              << ", a = " << a << ", y = " << y << ", fineness = " << fineness 
-              << ", theory_grid_points = " << theory_grid_points
-              << ", theory_tolerance = " << theory_tolerance << std::endl;
-    std::cout << "Output will be saved to: " << output_file << std::endl;
-    
-    // ─── Beta range parameters ────────────────────────────────────────
-    const int num_beta_points = fineness; // Controlled by fineness parameter
-    std::vector<double> beta_values(num_beta_points);
-    for (int i = 0; i < num_beta_points; ++i) {
-        beta_values[i] = static_cast<double>(i) / (num_beta_points - 1);
-    }
-    
-    // ─── Storage for results ────────────────────────────────────────
-    std::vector<double> max_eigenvalues(num_beta_points);
-    std::vector<double> min_eigenvalues(num_beta_points);
-    std::vector<double> theoretical_max_values(num_beta_points);
-    std::vector<double> theoretical_min_values(num_beta_points);
-    
-    try {
-        // ─── Random‐Gaussian X and S_n ────────────────────────────────
-        std::random_device rd;
-        std::mt19937_64 rng{rd()};
-        std::normal_distribution<double> norm(0.0, 1.0);
-        
-        cv::Mat X(p, n, CV_64F);
-        for(int i = 0; i < p; ++i)
-            for(int j = 0; j < n; ++j)
-                X.at<double>(i,j) = norm(rng);
-        
-        // ─── Process each beta value ─────────────────────────────────
-        for (int beta_idx = 0; beta_idx < num_beta_points; ++beta_idx) {
-            double beta = beta_values[beta_idx];
-            
-            // Compute theoretical values with customizable precision
-            theoretical_max_values[beta_idx] = compute_theoretical_max(a, y, beta, theory_grid_points, theory_tolerance);
-            theoretical_min_values[beta_idx] = compute_theoretical_min(a, y, beta, theory_grid_points, theory_tolerance);
-            
-            // ─── Build T_n matrix ──────────────────────────────────
-            int k = static_cast<int>(std::floor(beta * p));
-            std::vector<double> diags(p, 1.0);
-            std::fill_n(diags.begin(), k, a);
-            std::shuffle(diags.begin(), diags.end(), rng);
-            
-            cv::Mat T_n = cv::Mat::zeros(p, p, CV_64F);
-            for(int i = 0; i < p; ++i){
-                T_n.at<double>(i,i) = diags[i];
-            }
-            
-            // ─── Form B_n = (1/n) * X * T_n * X^T ────────────
-            cv::Mat B = (X.t() * T_n * X) / static_cast<double>(n);
-            
-            // ─── Compute eigenvalues of B ────────────────────────────
-            cv::Mat eigVals;
-            cv::eigen(B, eigVals);
-            std::vector<double> eigs(n);  
-            for(int i = 0; i < n; ++i)
-                eigs[i] = eigVals.at<double>(i, 0);
-            
-            max_eigenvalues[beta_idx] = *std::max_element(eigs.begin(), eigs.end());
-            min_eigenvalues[beta_idx] = *std::min_element(eigs.begin(), eigs.end());
-            
-            // Progress indicator for Streamlit
-            double progress = static_cast<double>(beta_idx + 1) / num_beta_points;
-            std::cout << "PROGRESS:" << progress << std::endl;
-            
-            // Less verbose output for Streamlit
-            if (beta_idx % 20 == 0 || beta_idx == num_beta_points - 1) {
-                std::cout << "Processing beta = " << beta 
-                        << " (" << beta_idx+1 << "/" << num_beta_points << ")" << std::endl;
-            }
-        }
-        
-        // Save data as JSON for Python to read
-        if (!save_as_json(output_file, beta_values, max_eigenvalues, min_eigenvalues, 
-                        theoretical_max_values, theoretical_min_values)) {
-            return false;
-        }
-        
-        std::cout << "Data saved to " << output_file << std::endl;
-        return true;
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error in eigenvalue analysis: " << e.what() << std::endl;
-        return false;
-    }
-    catch (...) {
-        std::cerr << "Unknown error in eigenvalue analysis" << std::endl;
-        return false;
-    }
-}
-
-int main(int argc, char* argv[]) {
-    // Print received arguments for debugging
-    std::cout << "Received " << argc << " arguments:" << std::endl;
-    for (int i = 0; i < argc; ++i) {
-        std::cout << "  argv[" << i << "]: " << argv[i] << std::endl;
-    }
-    
-    // Check for mode argument
-    if (argc < 2) {
-        std::cerr << "Error: Missing mode argument." << std::endl;
-        std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
-        return 1;
-    }
-    
-    std::string mode = argv[1];
-    
-    try {
-        if (mode == "eigenvalues") {
-            // ─── Eigenvalue analysis mode ───────────────────────────────────────────
-            if (argc != 10) {
-                std::cerr << "Error: Incorrect number of arguments for eigenvalues mode." << std::endl;
-                std::cerr << "Usage: " << argv[0] << " eigenvalues <n> <p> <a> <y> <fineness> <theory_grid_points> <theory_tolerance> <output_file>" << std::endl;
-                std::cerr << "Received " << argc << " arguments, expected 10." << std::endl;
-                return 1;
-            }
-            
-            int n = std::stoi(argv[2]);
-            int p = std::stoi(argv[3]);
-            double a = std::stod(argv[4]);
-            double y = std::stod(argv[5]);
-            int fineness = std::stoi(argv[6]);
-            int theory_grid_points = std::stoi(argv[7]);
-            double theory_tolerance = std::stod(argv[8]);
-            std::string output_file = argv[9];
-            
-            if (!eigenvalueAnalysis(n, p, a, y, fineness, theory_grid_points, theory_tolerance, output_file)) {
-                return 1;
-            }
-        } else {
-            std::cerr << "Error: Unknown mode: " << mode << std::endl;
-            std::cerr << "Use 'eigenvalues'" << std::endl;
-            return 1;
-        }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
-    }
-    
-    return 0;
-}
-        ''')
-
-# Compile the C++ code with the right OpenCV libraries
-st.sidebar.title("Dashboard Settings")
-need_compile = not os.path.exists(executable) or st.sidebar.button("Recompile C++ Code")
-
-if need_compile:
-    with st.sidebar:
-        with st.spinner("Compiling C++ code..."):
-            # Try to detect the OpenCV installation
-            opencv_detection_cmd = ["pkg-config", "--cflags", "--libs", "opencv4"]
-            opencv_found, opencv_flags, _ = run_command(opencv_detection_cmd, show_output=False)
-            
-            compile_commands = []
-            
-            if opencv_found:
-                compile_commands.append(
-                    f"g++ -o {executable} {cpp_file} {opencv_flags.strip()} -std=c++11"
-                )
-            else:
-                # Try different OpenCV configurations
-                compile_commands = [
-                    f"g++ -o {executable} {cpp_file} `pkg-config --cflags --libs opencv4` -std=c++11",
-                    f"g++ -o {executable} {cpp_file} `pkg-config --cflags --libs opencv` -std=c++11",
-                    f"g++ -o {executable} {cpp_file} -I/usr/include/opencv4 -lopencv_core -lopencv_imgproc -std=c++11",
-                    f"g++ -o {executable} {cpp_file} -I/usr/local/include/opencv4 -lopencv_core -lopencv_imgproc -std=c++11"
-                ]
-            
-            compiled = False
-            compile_output = ""
-            
-            for cmd in compile_commands:
-                st.text(f"Trying: {cmd}")
-                success, stdout, stderr = run_command(cmd.split(), show_output=False)
-                compile_output += f"Command: {cmd}\nOutput: {stdout}\nError: {stderr}\n\n"
-                
-                if success:
-                    compiled = True
-                    st.success(f"Successfully compiled with: {cmd}")
-                    break
-            
-            if not compiled:
-                st.error("All compilation attempts failed.")
-                with st.expander("Compilation Details"):
-                    st.code(compile_output)
-                st.stop()
-            
-            # Make sure the executable is executable
-            if platform.system() != "Windows":
-                os.chmod(executable, 0o755)
-            
-            st.success("C++ code compiled successfully!")
-
-# Set higher precision for mpmath
-mpmath.mp.dps = 100  # 100 digits of precision
-
-# Improved cubic equation solver using SymPy with high precision
-def solve_cubic(a, b, c, d):
-    """
-    Solve cubic equation ax^3 + bx^2 + cx + d = 0 using sympy with high precision.
-    Returns a list with three complex roots.
-    """
-    # Constants for numerical stability
-    epsilon = 1e-40  # Very small value for higher precision
-    zero_threshold = 1e-20
-    
-    # Create symbolic variable
-    s = sp.Symbol('s')
-    
-    # Special case handling
+    # Handle degenerate cases
     if abs(a) < epsilon:
-        # Quadratic case handling
-        if abs(b) < epsilon:  # Linear equation or constant
-            if abs(c) < epsilon:  # Constant
-                return [complex(float('nan')), complex(float('nan')), complex(float('nan'))]
-            else:  # Linear
-                return [complex(-d/c), complex(float('inf')), complex(float('inf'))]
-        
-        # Standard quadratic formula with high precision
-        discriminant = c*c - 4.0*b*d
-        if discriminant >= 0:
-            sqrt_disc = sp.sqrt(discriminant)
-            root1 = (-c + sqrt_disc) / (2.0 * b)
-            root2 = (-c - sqrt_disc) / (2.0 * b)
-            return [complex(float(N(root1, 100))), 
-                    complex(float(N(root2, 100))), 
-                    complex(float('inf'))]
-        else:
-            real_part = -c / (2.0 * b)
-            imag_part = sp.sqrt(-discriminant) / (2.0 * b)
-            real_val = float(N(real_part, 100))
-            imag_val = float(N(imag_part, 100))
-            return [complex(real_val, imag_val),
-                    complex(real_val, -imag_val),
-                    complex(float('inf'))]
-    
-    # Special case for d=0 (one root is zero)
-    if abs(d) < epsilon:
-        # One root is exactly zero
-        roots = [complex(0.0, 0.0)]
-        
-        # Solve remaining quadratic: ax^2 + bx + c = 0
-        quad_disc = b*b - 4.0*a*c
-        if quad_disc >= 0:
-            sqrt_disc = sp.sqrt(quad_disc)
-            r1 = (-b + sqrt_disc) / (2.0 * a)
-            r2 = (-b - sqrt_disc) / (2.0 * a)
-            
-            # Get precise values
-            r1_val = float(N(r1, 100))
-            r2_val = float(N(r2, 100))
-            
-            # Ensure one positive and one negative root
-            if r1_val > 0 and r2_val > 0:
-                roots.append(complex(r1_val, 0.0))
-                roots.append(complex(-abs(r2_val), 0.0))
-            elif r1_val < 0 and r2_val < 0:
-                roots.append(complex(-abs(r1_val), 0.0))
-                roots.append(complex(abs(r2_val), 0.0))
-            else:
-                roots.append(complex(r1_val, 0.0))
-                roots.append(complex(r2_val, 0.0))
-            
-            return roots
-        else:
-            real_part = -b / (2.0 * a)
-            imag_part = sp.sqrt(-quad_disc) / (2.0 * a)
-            real_val = float(N(real_part, 100))
-            imag_val = float(N(imag_part, 100))
-            roots.append(complex(real_val, imag_val))
-            roots.append(complex(real_val, -imag_val))
-            
-            return roots
-    
-    # Create exact symbolic equation with high precision
-    eq = a * s**3 + b * s**2 + c * s + d
-    
-    # Solve using SymPy's solver
-    sympy_roots = sp.solve(eq, s)
-    
-    # Process roots with high precision
-    roots = []
-    for root in sympy_roots:
-        real_part = float(N(sp.re(root), 100))
-        imag_part = float(N(sp.im(root), 100))
-        roots.append(complex(real_part, imag_part))
-    
-    # Ensure roots follow the expected pattern
-    # Check if pattern is already satisfied
-    zeros = [r for r in roots if abs(r.real) < zero_threshold]
-    positives = [r for r in roots if r.real > zero_threshold]
-    negatives = [r for r in roots if r.real < -zero_threshold]
-    
-    if (len(zeros) == 1 and len(positives) == 1 and len(negatives) == 1) or len(zeros) == 3:
-        return roots
-    
-    # If all roots are almost zeros, return three zeros
-    if all(abs(r.real) < zero_threshold for r in roots):
-        return [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)]
-    
-    # Sort roots by real part
-    roots.sort(key=lambda r: r.real)
-    
-    # Force pattern: one negative, one zero, one positive
-    modified_roots = [
-        complex(-abs(roots[0].real), 0.0),  # Negative
-        complex(0.0, 0.0),                  # Zero
-        complex(abs(roots[-1].real), 0.0)   # Positive
-    ]
-    
-    return modified_roots
+        if abs(b) < epsilon:
+            if abs(c) < epsilon:
+                return np.array([complex(np.nan), complex(np.nan), complex(np.nan)])
+            # Linear equation: cx + d = 0
+            return np.array([complex(-d/c), complex(np.inf), complex(np.inf)])
+        # Quadratic equation: bx^2 + cx + d = 0
+        roots_2d = np.roots([b, c, d])
+        return np.concatenate([roots_2d, [complex(np.inf)]])
 
-# Function to compute Im(s) vs z data using the SymPy solver
-def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_callback=None):
-    # Use logarithmic spacing for z values (better visualization)
-    z_values = np.logspace(np.log10(max(0.01, z_min)), np.log10(z_max), num_points)
-    ims_values1 = np.zeros(num_points)
-    ims_values2 = np.zeros(num_points)
-    ims_values3 = np.zeros(num_points)
-    real_values1 = np.zeros(num_points)
-    real_values2 = np.zeros(num_points)
-    real_values3 = np.zeros(num_points)
-    
-    for i, z in enumerate(z_values):
-        # Update progress if callback provided
-        if progress_callback and i % 5 == 0:
-            progress_callback(i / num_points)
-            
-        # Coefficients for the cubic equation:
-        # zas³ + [z(a+1)+a(1-y)]s² + [z+(a+1)-y-yβ(a-1)]s + 1 = 0
-        coef_a = z * a
-        coef_b = z * (a + 1) + a * (1 - y)
-        coef_c = z + (a + 1) - y - y * beta * (a - 1)
+    # Use numpy.roots for cubic polynomial
+    # numpy.roots expects coefficients in descending order: [a, b, c, d]
+    roots = np.roots([a, b, c, d])
+
+    # Ensure we have exactly 3 roots (should always be the case for cubic)
+    if len(roots) < 3:
+        roots = np.concatenate([roots, [complex(0.0)] * (3 - len(roots))])
+
+    return roots
+
+
+def compute_ImS_vs_Z(a, y, beta, num_points, z_min, z_max, progress_cb=None):
+    # Use linear spacing for z values
+    z_values = np.linspace(z_min, z_max, num_points)
+    ims_values = np.zeros((num_points, 3))
+    real_values = np.zeros((num_points, 3))
+
+    pbar = tqdm(total=num_points, desc="Computing Im(s) vs z")
+    for i, z_val in enumerate(z_values):
+        coef_a = z_val * a
+        coef_b = z_val * (a + 1) + a * (1 - y)
+        coef_c = z_val + (a + 1) - y - y * beta * (a - 1)
         coef_d = 1.0
-        
-        # Solve the cubic equation with high precision
-        roots = solve_cubic(coef_a, coef_b, coef_c, coef_d)
-        
-        # Store imaginary and real parts
-        ims_values1[i] = abs(roots[0].imag)
-        ims_values2[i] = abs(roots[1].imag)
-        ims_values3[i] = abs(roots[2].imag)
-        
-        real_values1[i] = roots[0].real
-        real_values2[i] = roots[1].real
-        real_values3[i] = roots[2].real
-    
-    # Prepare result data
-    result = {
-        'z_values': z_values,
-        'ims_values1': ims_values1,
-        'ims_values2': ims_values2,
-        'ims_values3': ims_values3,
-        'real_values1': real_values1,
-        'real_values2': real_values2,
-        'real_values3': real_values3
+        roots = solve_cubic_numpy(coef_a, coef_b, coef_c, coef_d)
+        for j in range(3):
+            # Extract imaginary part (keep sign, don't use abs)
+            ims_values[i, j] = roots[j].imag
+            real_values[i, j] = roots[j].real
+        pbar.update(1)
+        if progress_cb:
+            progress_cb(i + 1, num_points)
+    pbar.close()
+
+    return {
+        "z_values": z_values.tolist(),
+        "ims_values": ims_values.tolist(),
+        "real_values": real_values.tolist(),
     }
-    
-    # Final progress update
-    if progress_callback:
-        progress_callback(1.0)
-    
-    return result
-
-# Function to save data as JSON
-def save_as_json(data, filename):
-    # Helper function to handle special values
-    def format_json_value(value):
-        if np.isnan(value):
-            return "NaN"
-        elif np.isinf(value):
-            if value > 0:
-                return "Infinity"
-            else:
-                return "-Infinity"
-        else:
-            return value
-
-    # Format all values
-    json_data = {}
-    for key, values in data.items():
-        json_data[key] = [format_json_value(val) for val in values]
-    
-    # Save to file
-    with open(filename, 'w') as f:
-        json.dump(json_data, f, indent=2)
-
-# Create high-quality Dash-like visualizations for cubic equation analysis
-def create_dash_style_visualization(result, cubic_a, cubic_y, cubic_beta):
-    # Extract data from result
-    z_values = result['z_values']
-    ims_values1 = result['ims_values1']
-    ims_values2 = result['ims_values2']
-    ims_values3 = result['ims_values3']
-    real_values1 = result['real_values1']
-    real_values2 = result['real_values2']
-    real_values3 = result['real_values3']
-    
-    # Create subplot figure with 2 rows for imaginary and real parts
-    fig = make_subplots(
-        rows=2, 
-        cols=1,
-        subplot_titles=(
-            f"Imaginary Parts of Roots: a={cubic_a}, y={cubic_y}, β={cubic_beta}",
-            f"Real Parts of Roots: a={cubic_a}, y={cubic_y}, β={cubic_beta}"
-        ),
-        vertical_spacing=0.15,
-        specs=[[{"type": "scatter"}], [{"type": "scatter"}]]
-    )
-    
-    # Add traces for imaginary parts
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=ims_values1,
-            mode='lines',
-            name='Im(s₁)',
-            line=dict(color='rgb(239, 85, 59)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(s₁): %{y:.6f}<extra>Root 1</extra>'
-        ),
-        row=1, col=1
-    )
-    
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=ims_values2,
-            mode='lines',
-            name='Im(s₂)',
-            line=dict(color='rgb(0, 129, 201)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(s₂): %{y:.6f}<extra>Root 2</extra>'
-        ),
-        row=1, col=1
-    )
-    
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=ims_values3,
-            mode='lines',
-            name='Im(s₃)',
-            line=dict(color='rgb(0, 176, 80)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Im(s₃): %{y:.6f}<extra>Root 3</extra>'
-        ),
-        row=1, col=1
-    )
-    
-    # Add traces for real parts
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=real_values1,
-            mode='lines',
-            name='Re(s₁)',
-            line=dict(color='rgb(239, 85, 59)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(s₁): %{y:.6f}<extra>Root 1</extra>'
-        ),
-        row=2, col=1
-    )
-    
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=real_values2,
-            mode='lines',
-            name='Re(s₂)',
-            line=dict(color='rgb(0, 129, 201)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(s₂): %{y:.6f}<extra>Root 2</extra>'
-        ),
-        row=2, col=1
-    )
-    
-    fig.add_trace(
-        go.Scatter(
-            x=z_values, 
-            y=real_values3,
-            mode='lines',
-            name='Re(s₃)',
-            line=dict(color='rgb(0, 176, 80)', width=2.5),
-            hovertemplate='z: %{x:.4f}<br>Re(s₃): %{y:.6f}<extra>Root 3</extra>'
-        ),
-        row=2, col=1
-    )
-    
-    # Add horizontal line at y=0 for real parts
-    fig.add_shape(
-        type="line",
-        x0=min(z_values),
-        y0=0,
-        x1=max(z_values),
-        y1=0,
-        line=dict(color="black", width=1, dash="dash"),
-        row=2, col=1
-    )
-    
-    # Compute y-axis ranges
-    max_im_value = max(np.max(ims_values1), np.max(ims_values2), np.max(ims_values3))
-    real_min = min(np.min(real_values1), np.min(real_values2), np.min(real_values3))
-    real_max = max(np.max(real_values1), np.max(real_values2), np.max(real_values3))
-    y_range = max(abs(real_min), abs(real_max))
-    
-    # Update layout for professional Dash-like appearance
-    fig.update_layout(
-        title={
-            'text': 'Cubic Equation Roots Analysis',
-            'font': {'size': 24, 'color': '#333333', 'family': 'Arial, sans-serif'},
-            'x': 0.5,
-            'xanchor': 'center',
-            'y': 0.97,
-            'yanchor': 'top'
-        },
-        legend={
-            'orientation': 'h',
-            'yanchor': 'bottom',
-            'y': 1.02,
-            'xanchor': 'center',
-            'x': 0.5,
-            'font': {'size': 12, 'color': '#333333', 'family': 'Arial, sans-serif'},
-            'bgcolor': 'rgba(255, 255, 255, 0.8)',
-            'bordercolor': 'rgba(0, 0, 0, 0.1)',
-            'borderwidth': 1
-        },
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        hovermode='closest',
-        margin={'l': 60, 'r': 60, 't': 100, 'b': 60},
-        height=800,
-        font=dict(family="Arial, sans-serif", size=12, color="#333333"),
-        showlegend=True
-    )
-    
-    # Update axes for both subplots
-    fig.update_xaxes(
-        title_text="z (logarithmic scale)",
-        title_font=dict(size=14, family="Arial, sans-serif"),
-        type="log",
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(220, 220, 220, 0.8)',
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        mirror=True,
-        row=1, col=1
-    )
-    
-    fig.update_xaxes(
-        title_text="z (logarithmic scale)",
-        title_font=dict(size=14, family="Arial, sans-serif"),
-        type="log",
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(220, 220, 220, 0.8)',
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        mirror=True,
-        row=2, col=1
-    )
-    
-    fig.update_yaxes(
-        title_text="Im(s)",
-        title_font=dict(size=14, family="Arial, sans-serif"),
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(220, 220, 220, 0.8)',
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        mirror=True,
-        range=[0, max_im_value * 1.1],  # Only positive range for imaginary parts
-        row=1, col=1
-    )
-    
-    fig.update_yaxes(
-        title_text="Re(s)",
-        title_font=dict(size=14, family="Arial, sans-serif"),
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(220, 220, 220, 0.8)',
-        showline=True,
-        linewidth=1,
-        linecolor='black',
-        mirror=True,
-        range=[-y_range * 1.1, y_range * 1.1],  # Symmetric range for real parts
-        zeroline=True,
-        zerolinewidth=1.5,
-        zerolinecolor='black',
-        row=2, col=1
-    )
-    
-    return fig
-
-# Create a root pattern visualization
-def create_root_pattern_visualization(result):
-    # Extract data
-    z_values = result['z_values']
-    real_values1 = result['real_values1']
-    real_values2 = result['real_values2']
-    real_values3 = result['real_values3']
-    
-    # Count patterns
-    pattern_types = []
-    colors = []
-    hover_texts = []
-    
-    # Define color scheme
-    ideal_color = 'rgb(0, 129, 201)'  # Blue
-    all_zeros_color = 'rgb(0, 176, 80)'  # Green
-    other_color = 'rgb(239, 85, 59)'  # Red
-    
-    for i in range(len(z_values)):
-        # Count zeros, positives, and negatives
-        zeros = 0
-        positives = 0
-        negatives = 0
-        
-        # Handle NaN values
-        r1 = real_values1[i] if not np.isnan(real_values1[i]) else 0
-        r2 = real_values2[i] if not np.isnan(real_values2[i]) else 0
-        r3 = real_values3[i] if not np.isnan(real_values3[i]) else 0
-        
-        for r in [r1, r2, r3]:
-            if abs(r) < 1e-6:
-                zeros += 1
-            elif r > 0:
-                positives += 1
-            else:
-                negatives += 1
-        
-        # Classify pattern
-        if zeros == 3:
-            pattern_types.append("All zeros")
-            colors.append(all_zeros_color)
-            hover_texts.append(f"z: {z_values[i]:.4f}<br>Pattern: All zeros<br>Roots: (0, 0, 0)")
-        elif zeros == 1 and positives == 1 and negatives == 1:
-            pattern_types.append("Ideal pattern")
-            colors.append(ideal_color)
-            hover_texts.append(f"z: {z_values[i]:.4f}<br>Pattern: Ideal (1 neg, 1 zero, 1 pos)<br>Roots: ({r1:.4f}, {r2:.4f}, {r3:.4f})")
-        else:
-            pattern_types.append("Other pattern")
-            colors.append(other_color)
-            hover_texts.append(f"z: {z_values[i]:.4f}<br>Pattern: Other ({negatives} neg, {zeros} zero, {positives} pos)<br>Roots: ({r1:.4f}, {r2:.4f}, {r3:.4f})")
-    
-    # Create pattern visualization
-    fig = go.Figure()
-    
-    # Add scatter plot with patterns
-    fig.add_trace(go.Scatter(
-        x=z_values,
-        y=[1] * len(z_values),  # Constant y value
-        mode='markers',
-        marker=dict(
-            size=10,
-            color=colors,
-            symbol='circle',
-            line=dict(width=1, color='black')
-        ),
-        hoverinfo='text',
-        hovertext=hover_texts,
-        showlegend=False
-    ))
-    
-    # Add custom legend
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None],
-        mode='markers',
-        marker=dict(size=10, color=ideal_color),
-        name='Ideal pattern (1 neg, 1 zero, 1 pos)'
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None],
-        mode='markers',
-        marker=dict(size=10, color=all_zeros_color),
-        name='All zeros'
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None],
-        mode='markers',
-        marker=dict(size=10, color=other_color),
-        name='Other pattern'
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            'text': 'Root Pattern Analysis',
-            'font': {'size': 18, 'color': '#333333', 'family': 'Arial, sans-serif'},
-            'x': 0.5,
-            'y': 0.95
-        },
-        xaxis={
-            'title': 'z (logarithmic scale)',
-            'type': 'log',
-            'showgrid': True,
-            'gridcolor': 'rgba(220, 220, 220, 0.8)',
-            'showline': True,
-            'linecolor': 'black',
-            'mirror': True
-        },
-        yaxis={
-            'showticklabels': False,
-            'showgrid': False,
-            'zeroline': False,
-            'showline': False,
-            'range': [0.9, 1.1]
-        },
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        hovermode='closest',
-        legend={
-            'orientation': 'h',
-            'yanchor': 'bottom',
-            'y': 1.02,
-            'xanchor': 'right',
-            'x': 1
-        },
-        margin={'l': 60, 'r': 60, 't': 80, 'b': 60},
-        height=300
-    )
-    
-    return fig
-
-# Create complex plane visualization
-def create_complex_plane_visualization(result, z_idx):
-    # Extract data
-    z_values = result['z_values']
-    real_values1 = result['real_values1']
-    real_values2 = result['real_values2']
-    real_values3 = result['real_values3']
-    ims_values1 = result['ims_values1']
-    ims_values2 = result['ims_values2']
-    ims_values3 = result['ims_values3']
-    
-    # Get selected z value
-    selected_z = z_values[z_idx]
-    
-    # Create complex number roots
-    roots = [
-        complex(real_values1[z_idx], ims_values1[z_idx]),
-        complex(real_values2[z_idx], ims_values2[z_idx]),
-        complex(real_values3[z_idx], -ims_values3[z_idx])  # Negative for third root
-    ]
-    
-    # Extract real and imaginary parts
-    real_parts = [root.real for root in roots]
-    imag_parts = [root.imag for root in roots]
-    
-    # Determine plot range
-    max_abs_real = max(abs(max(real_parts)), abs(min(real_parts)))
-    max_abs_imag = max(abs(max(imag_parts)), abs(min(imag_parts)))
-    max_range = max(max_abs_real, max_abs_imag) * 1.2
-    
-    # Create figure
-    fig = go.Figure()
-    
-    # Add roots as points
-    fig.add_trace(go.Scatter(
-        x=real_parts,
-        y=imag_parts,
-        mode='markers+text',
-        marker=dict(
-            size=12,
-            color=['rgb(239, 85, 59)', 'rgb(0, 129, 201)', 'rgb(0, 176, 80)'],
-            symbol='circle',
-            line=dict(width=1, color='black')
-        ),
-        text=['s₁', 's₂', 's₃'],
-        textposition="top center",
-        name='Roots'
-    ))
-    
-    # Add axis lines
-    fig.add_shape(
-        type="line",
-        x0=-max_range,
-        y0=0,
-        x1=max_range,
-        y1=0,
-        line=dict(color="black", width=1)
-    )
-    
-    fig.add_shape(
-        type="line",
-        x0=0,
-        y0=-max_range,
-        x1=0,
-        y1=max_range,
-        line=dict(color="black", width=1)
-    )
-    
-    # Add unit circle for reference
-    theta = np.linspace(0, 2*np.pi, 100)
-    x_circle = np.cos(theta)
-    y_circle = np.sin(theta)
-    
-    fig.add_trace(go.Scatter(
-        x=x_circle,
-        y=y_circle,
-        mode='lines',
-        line=dict(color='rgba(100, 100, 100, 0.3)', width=1, dash='dash'),
-        name='Unit Circle'
-    ))
-    
-    # Update layout
-    fig.update_layout(
-        title={
-            'text': f'Roots in Complex Plane for z = {selected_z:.4f}',
-            'font': {'size': 18, 'color': '#333333', 'family': 'Arial, sans-serif'},
-            'x': 0.5,
-            'y': 0.95
-        },
-        xaxis={
-            'title': 'Real Part',
-            'range': [-max_range, max_range],
-            'showgrid': True,
-            'zeroline': False,
-            'showline': True,
-            'linecolor': 'black',
-            'mirror': True,
-            'gridcolor': 'rgba(220, 220, 220, 0.8)'
-        },
-        yaxis={
-            'title': 'Imaginary Part',
-            'range': [-max_range, max_range],
-            'showgrid': True,
-            'zeroline': False,
-            'showline': True,
-            'linecolor': 'black',
-            'mirror': True,
-            'scaleanchor': 'x',
-            'scaleratio': 1,
-            'gridcolor': 'rgba(220, 220, 220, 0.8)'
-        },
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        hovermode='closest',
-        showlegend=False,
-        annotations=[
-            dict(
-                text=f"Root 1: {roots[0].real:.4f} + {abs(roots[0].imag):.4f}i",
-                x=0.02, y=0.98, xref="paper", yref="paper",
-                showarrow=False, font=dict(color='rgb(239, 85, 59)', size=12)
-            ),
-            dict(
-                text=f"Root 2: {roots[1].real:.4f} + {abs(roots[1].imag):.4f}i",
-                x=0.02, y=0.94, xref="paper", yref="paper",
-                showarrow=False, font=dict(color='rgb(0, 129, 201)', size=12)
-            ),
-            dict(
-                text=f"Root 3: {roots[2].real:.4f} + {abs(roots[2].imag):.4f}i",
-                x=0.02, y=0.90, xref="paper", yref="paper",
-                showarrow=False, font=dict(color='rgb(0, 176, 80)', size=12)
-            )
-        ],
-        width=600,
-        height=500,
-        margin=dict(l=60, r=60, t=80, b=60)
-    )
-    
-    return fig
-
-# ----- Additional Complex Root Utilities -----
-def compute_cubic_roots(z, beta, z_a, y):
-    """Compute roots of the cubic equation using SymPy for high precision."""
-    y_effective = y if y > 1 else 1 / y
-    from sympy import symbols, solve, N, Poly
-    s = symbols('s')
-    a = z * z_a
-    b = z * z_a + z + z_a - z_a * y_effective
-    c = z + z_a + 1 - y_effective * (beta * z_a + 1 - beta)
-    d = 1
-    if abs(a) < 1e-10:
-        if abs(b) < 1e-10:
-            roots = np.array([-d / c, 0, 0], dtype=complex)
-        else:
-            quad_roots = np.roots([b, c, d])
-            roots = np.append(quad_roots, 0).astype(complex)
-        return roots
-    try:
-        cubic_eq = Poly(a * s ** 3 + b * s ** 2 + c * s + d, s)
-        symbolic_roots = solve(cubic_eq, s)
-        numerical_roots = [complex(N(root, 30)) for root in symbolic_roots]
-        while len(numerical_roots) < 3:
-            numerical_roots.append(0j)
-        return np.array(numerical_roots, dtype=complex)
-    except Exception:
-        coeffs = [a, b, c, d]
-        return np.roots(coeffs)
 
 
-def track_roots_consistently(z_values, all_roots):
-    n_points = len(z_values)
+def compute_cubic_roots(z, beta, a, y):
+    a_coef = z * a
+    b_coef = z * (a + 1) + a * (1 - y)
+    c_coef = z + (a + 1) - y - y * beta * (a - 1)
+    d_coef = 1
+    return solve_cubic_numpy(a_coef, b_coef, c_coef, d_coef)
+
+
+def track_roots_consistently(grid_values, all_roots):
+    n_points = len(grid_values)
     n_roots = all_roots[0].shape[0]
     tracked_roots = np.zeros((n_points, n_roots), dtype=complex)
     tracked_roots[0] = all_roots[0]
@@ -1621,7 +94,7 @@ def track_roots_consistently(z_values, all_roots):
         for j in range(n_roots):
             distances = np.abs(current_roots - prev_roots[j])
             while True:
-                best_idx = np.argmin(distances)
+                best_idx = np.min(np.where(distances == distances.min()))
                 if not assigned[best_idx]:
                     assignments[j] = best_idx
                     assigned[best_idx] = True
@@ -1634,860 +107,2494 @@ def track_roots_consistently(z_values, all_roots):
     return tracked_roots
 
 
-def generate_cubic_discriminant(z, beta, z_a, y_effective):
-    a = z * z_a
-    b = z * z_a + z + z_a - z_a * y_effective
-    c = z + z_a + 1 - y_effective * (beta * z_a + 1 - beta)
-    d = 1
-    return (18 * a * b * c * d - 27 * a ** 2 * d ** 2 + b ** 2 * c ** 2 -
-            2 * b ** 3 * d - 9 * a * c ** 3)
-
-
-def generate_root_plots(beta, y, z_a, z_min, z_max, n_points):
-    if z_a <= 0 or y <= 0 or z_min >= z_max:
-        st.error("Invalid input parameters.")
-        return None, None, None
-    y_effective = y if y > 1 else 1 / y
-    z_points = np.linspace(z_min, z_max, n_points)
-    all_roots = []
-    discriminants = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    for i, z in enumerate(z_points):
-        progress_bar.progress((i + 1) / n_points)
-        status_text.text(f"Computing roots for z = {z:.3f} ({i+1}/{n_points})")
-        roots = compute_cubic_roots(z, beta, z_a, y)
-        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
-        all_roots.append(roots)
-        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
-        discriminants.append(disc)
-    progress_bar.empty()
-    status_text.empty()
-    all_roots = np.array(all_roots)
-    discriminants = np.array(discriminants)
-    tracked_roots = track_roots_consistently(z_points, all_roots)
-    ims = np.imag(tracked_roots)
-    res = np.real(tracked_roots)
-    fig_im = go.Figure()
-    for i in range(3):
-        fig_im.add_trace(go.Scatter(x=z_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}", line=dict(width=2)))
-    disc_zeros = []
-    for i in range(len(discriminants) - 1):
-        if discriminants[i] * discriminants[i + 1] <= 0:
-            zero_pos = z_points[i] + (z_points[i + 1] - z_points[i]) * (0 - discriminants[i]) / (discriminants[i + 1] - discriminants[i])
-            disc_zeros.append(zero_pos)
-            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
-    fig_im.update_layout(title=f"Im{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="z", yaxis_title="Im{s}", hovermode="x unified")
-    fig_re = go.Figure()
-    for i in range(3):
-        fig_re.add_trace(go.Scatter(x=z_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}", line=dict(width=2)))
-    for zero_pos in disc_zeros:
-        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
-    fig_re.update_layout(title=f"Re{{s}} vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="z", yaxis_title="Re{s}", hovermode="x unified")
-    fig_disc = go.Figure()
-    fig_disc.add_trace(go.Scatter(x=z_points, y=discriminants, mode="lines", name="Cubic Discriminant", line=dict(color="black", width=2)))
-    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
-    fig_disc.update_layout(title=f"Cubic Discriminant vs. z (β={beta:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                           xaxis_title="z", yaxis_title="Discriminant", hovermode="x unified")
-    return fig_im, fig_re, fig_disc
-
-
-def analyze_complex_root_structure(beta_values, z, z_a, y):
-    y_effective = y if y > 1 else 1 / y
-    transition_points = []
-    structure_types = []
-    previous_type = None
-    for beta in beta_values:
-        roots = compute_cubic_roots(z, beta, z_a, y)
-        is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
-        current_type = "real" if is_all_real else "complex"
-        if previous_type is not None and current_type != previous_type:
-            transition_points.append(beta)
-            structure_types.append(previous_type)
-        previous_type = current_type
-    if previous_type is not None:
-        structure_types.append(previous_type)
-    return transition_points, structure_types
-
-
-def generate_roots_vs_beta_plots(z, y, z_a, beta_min, beta_max, n_points):
-    if z_a <= 0 or y <= 0 or beta_min >= beta_max:
-        st.error("Invalid input parameters.")
-        return None, None, None
-    y_effective = y if y > 1 else 1 / y
-    beta_points = np.linspace(beta_min, beta_max, n_points)
-    all_roots = []
-    discriminants = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    for i, beta in enumerate(beta_points):
-        progress_bar.progress((i + 1) / n_points)
-        status_text.text(f"Computing roots for β = {beta:.3f} ({i+1}/{n_points})")
-        roots = compute_cubic_roots(z, beta, z_a, y)
-        roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
-        all_roots.append(roots)
-        disc = generate_cubic_discriminant(z, beta, z_a, y_effective)
-        discriminants.append(disc)
-    progress_bar.empty()
-    status_text.empty()
-    all_roots = np.array(all_roots)
-    discriminants = np.array(discriminants)
-    tracked_roots = track_roots_consistently(beta_points, all_roots)
-    ims = np.imag(tracked_roots)
-    res = np.real(tracked_roots)
-    fig_im = go.Figure()
-    for i in range(3):
-        fig_im.add_trace(go.Scatter(x=beta_points, y=ims[:, i], mode="lines", name=f"Im{{s{i+1}}}", line=dict(width=2)))
-    disc_zeros = []
-    for i in range(len(discriminants) - 1):
-        if discriminants[i] * discriminants[i + 1] <= 0:
-            zero_pos = beta_points[i] + (beta_points[i + 1] - beta_points[i]) * (0 - discriminants[i]) / (discriminants[i + 1] - discriminants[i])
-            disc_zeros.append(zero_pos)
-            fig_im.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
-    fig_im.update_layout(title=f"Im{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="β", yaxis_title="Im{s}", hovermode="x unified")
-    fig_re = go.Figure()
-    for i in range(3):
-        fig_re.add_trace(go.Scatter(x=beta_points, y=res[:, i], mode="lines", name=f"Re{{s{i+1}}}", line=dict(width=2)))
-    for zero_pos in disc_zeros:
-        fig_re.add_vline(x=zero_pos, line=dict(color="red", width=1, dash="dash"))
-    fig_re.update_layout(title=f"Re{{s}} vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                         xaxis_title="β", yaxis_title="Re{s}", hovermode="x unified")
-    fig_disc = go.Figure()
-    fig_disc.add_trace(go.Scatter(x=beta_points, y=discriminants, mode="lines", name="Cubic Discriminant", line=dict(color="black", width=2)))
-    fig_disc.add_hline(y=0, line=dict(color="red", width=1, dash="dash"))
-    fig_disc.update_layout(title=f"Cubic Discriminant vs. β (z={z:.3f}, y={y:.3f}, z_a={z_a:.3f})",
-                           xaxis_title="β", yaxis_title="Discriminant", hovermode="x unified")
-    return fig_im, fig_re, fig_disc
-
-
-def generate_phase_diagram(z_a, y, beta_min=0.0, beta_max=1.0, z_min=-10.0, z_max=10.0, beta_steps=100, z_steps=100):
-    y_effective = y if y > 1 else 1 / y
-    beta_values = np.linspace(beta_min, beta_max, beta_steps)
-    z_values = np.linspace(z_min, z_max, z_steps)
-    phase_map = np.zeros((z_steps, beta_steps))
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    for i, z in enumerate(z_values):
-        progress_bar.progress((i + 1) / len(z_values))
-        status_text.text(f"Analyzing phase at z = {z:.2f} ({i+1}/{len(z_values)})")
-        for j, beta in enumerate(beta_values):
-            roots = compute_cubic_roots(z, beta, z_a, y)
-            is_all_real = all(abs(root.imag) < 1e-10 for root in roots)
-            phase_map[i, j] = 1 if is_all_real else -1
-    progress_bar.empty()
-    status_text.empty()
-    fig = go.Figure(data=go.Heatmap(z=phase_map, x=beta_values, y=z_values,
-                                    colorscale=[[0, 'blue'], [0.5, 'white'], [1.0, 'red']],
-                                    zmin=-1, zmax=1, showscale=True,
-                                    colorbar=dict(title="Root Type", tickvals=[-1, 1], ticktext=["Complex Roots", "All Real Roots"])) )
-    fig.update_layout(title=f"Phase Diagram: Root Structure (y={y:.3f}, z_a={z_a:.3f})",
-                      xaxis_title="β", yaxis_title="z", hovermode="closest")
-    return fig
-
-
-@st.cache_data
-def generate_eigenvalue_distribution(beta, y, z_a, n=1000, seed=42):
-    y_effective = y if y > 1 else 1 / y
-    np.random.seed(seed)
-    p = int(y_effective * n)
-    k = int(np.floor(beta * p))
-    diag_entries = np.concatenate([np.full(k, z_a), np.full(p - k, 1.0)])
-    np.random.shuffle(diag_entries)
-    T_n = np.diag(diag_entries)
-    X = np.random.randn(p, n)
-    S_n = (1 / n) * (X @ X.T)
-    B_n = S_n @ T_n
-    eigenvalues = np.linalg.eigvalsh(B_n)
-    kde = gaussian_kde(eigenvalues)
-    x_vals = np.linspace(min(eigenvalues), max(eigenvalues), 500)
-    kde_vals = kde(x_vals)
-    fig = go.Figure()
-    fig.add_trace(go.Histogram(x=eigenvalues, histnorm='probability density', name="Histogram", marker=dict(color='blue', opacity=0.6)))
-    fig.add_trace(go.Scatter(x=x_vals, y=kde_vals, mode="lines", name="KDE", line=dict(color='red', width=2)))
-    fig.update_layout(title=f"Eigenvalue Distribution for B_n = S_n T_n (y={y:.1f}, β={beta:.2f}, a={z_a:.1f})",
-                      xaxis_title="Eigenvalue", yaxis_title="Density", hovermode="closest", showlegend=True)
-    return fig, eigenvalues
-# Options for theme and appearance
-def compute_eigenvalue_support_boundaries(z_a, y, betas, n_samples=1000, seeds=5):
-    return np.zeros(len(betas)), np.ones(len(betas))
-with st.sidebar.expander("Theme & Appearance"):
-    show_annotations = st.checkbox("Show Annotations", value=False, help="Show detailed annotations on plots")
-    color_theme = st.selectbox(
-        "Color Theme",
-        ["Default", "Vibrant", "Pastel", "Dark", "Colorblind-friendly"],
-        index=0
+def generate_cubic_discriminant(z, beta, a, y):
+    a_coef = z * a
+    b_coef = z * (a + 1) + a * (1 - y)
+    c_coef = z + (a + 1) - y - y * beta * (a - 1)
+    d_coef = 1
+    return (
+        18 * a_coef * b_coef * c_coef * d_coef
+        - 27 * a_coef ** 2 * d_coef ** 2
+        + b_coef ** 2 * c_coef ** 2
+        - 2 * b_coef ** 3 * d_coef
+        - 9 * a_coef * c_coef ** 3
     )
-    
-    # Color mapping based on selected theme
-    if color_theme == "Vibrant":
-        color_max = 'rgb(255, 64, 64)'
-        color_min = 'rgb(64, 64, 255)'
-        color_theory_max = 'rgb(64, 191, 64)'
-        color_theory_min = 'rgb(191, 64, 191)'
-    elif color_theme == "Pastel":
-        color_max = 'rgb(255, 160, 160)'
-        color_min = 'rgb(160, 160, 255)'
-        color_theory_max = 'rgb(160, 255, 160)'
-        color_theory_min = 'rgb(255, 160, 255)'
-    elif color_theme == "Dark":
-        color_max = 'rgb(180, 40, 40)'
-        color_min = 'rgb(40, 40, 180)'
-        color_theory_max = 'rgb(40, 140, 40)'
-        color_theory_min = 'rgb(140, 40, 140)'
-    elif color_theme == "Colorblind-friendly":
-        color_max = 'rgb(230, 159, 0)'
-        color_min = 'rgb(86, 180, 233)'
-        color_theory_max = 'rgb(0, 158, 115)'
-        color_theory_min = 'rgb(240, 228, 66)'
-    else:  # Default
-        color_max = 'rgb(220, 60, 60)'
-        color_min = 'rgb(60, 60, 220)'
-        color_theory_max = 'rgb(30, 180, 30)'
-        color_theory_min = 'rgb(180, 30, 180)'
 
-# Create tabs for different analyses
-tab1, tab2 = st.tabs(["Eigenvalue Analysis (C++)", "Im(s) vs z Analysis (SymPy)"])
 
-# Tab 1: Eigenvalue Analysis (KEEP UNCHANGED from original)
-with tab1:
-    # Two-column layout for the dashboard
-    left_column, right_column = st.columns([1, 3])
-    
-    with left_column:
-        st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-header">Eigenvalue Analysis Controls</div>', unsafe_allow_html=True)
-        
-        # Parameter inputs with defaults and validation
-        st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
-        st.markdown("### Matrix Parameters")
-        n = st.number_input("Sample size (n)", min_value=5, max_value=10000000, value=100, step=5, 
-                           help="Number of samples", key="eig_n")
-        p = st.number_input("Dimension (p)", min_value=5, max_value=10000000, value=50, step=5, 
-                           help="Dimensionality", key="eig_p")
-        a = st.number_input("Value for a", min_value=1.1, max_value=10000.0, value=2.0, step=0.1, 
-                           help="Parameter a > 1", key="eig_a")
-        
-        # Automatically calculate y = p/n (as requested)
-        y = p/n
-        st.info(f"Value for y = p/n: {y:.4f}")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="parameter-container">', unsafe_allow_html=True)
-        st.markdown("### Calculation Controls")
-        fineness = st.slider(
-            "Beta points", 
-            min_value=20, 
-            max_value=500, 
-            value=100, 
-            step=10,
-            help="Number of points to calculate along the β axis (0 to 1)",
-            key="eig_fineness"
+# All plotting is now handled by JavaScript in the frontend
+
+
+# --------- Image Processing Helper Functions --------- #
+def get_random_matrix_folder():
+    """Get the .random_matrix folder path in user's home directory"""
+    home = Path.home()
+    folder = home / ".random_matrix"
+    folder.mkdir(exist_ok=True)
+    return folder
+
+def get_temp_folder():
+    """Get the temp folder path"""
+    temp = get_random_matrix_folder() / "temp"
+    temp.mkdir(exist_ok=True)
+    return temp
+
+def cleanup_temp_folder():
+    """Clean up temp folder on exit"""
+    temp = get_temp_folder()
+    if temp.exists():
+        shutil.rmtree(temp, ignore_errors=True)
+        temp.mkdir(exist_ok=True)
+
+def add_laplacian_noise(images, scale=0.1, seed=None):
+    """
+    Add independent Laplacian (double exponential) noise to a batch of grayscale images.
+
+    Laplacian noise has heavier tails than Gaussian and is zero-mean.
+    PDF: p(x) = (1/2b) * exp(-|x|/b) where b is the scale parameter.
+
+    Args:
+        images: numpy array (n, H, W) or (H, W) in [0, 1]
+        scale: scale parameter (b) of Laplacian distribution
+               Related to standard deviation: std = scale * sqrt(2)
+               Default: 0.1
+        seed: random seed for reproducibility (default: None for random behavior)
+
+    Returns:
+        noisy_images: numpy array, clipped to [0, 1]
+    """
+    # Set random seed for reproducibility if provided
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Handle both single image and batch
+    if images.ndim == 2:
+        H, W = images.shape
+        noise = np.random.laplace(0, scale, size=(H, W))
+    else:
+        n, H, W = images.shape
+        noise = np.random.laplace(0, scale, size=(n, H, W))
+
+    noisy = images + noise
+    noisy = np.clip(noisy, 0.0, 1.0)
+    return noisy.astype(np.float32)
+
+def add_mixture_gaussian_noise(images, weights, means, sigmas, seed=None):
+    """
+    Add Mixture of Gaussians noise to a batch of grayscale images.
+
+    Uses a mixture of Gaussian components with customizable weights, means, and variances
+    to create a multi-modal noise distribution.
+
+    Args:
+        images: numpy array (n, H, W) or (H, W) in [0, 1]
+        weights: list of weights for each component (should sum to 1.0)
+        means: list of mean values for each component
+        sigmas: list of standard deviations for each component
+        seed: random seed for reproducibility (default: None for random behavior)
+
+    Returns:
+        noisy_images: numpy array, clipped to [0, 1]
+    """
+    # Set random seed for reproducibility if provided
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Normalize weights to sum to 1
+    weights = np.array(weights)
+    weights = weights / np.sum(weights)
+
+    # Handle both single image and batch
+    if images.ndim == 2:
+        H, W = images.shape
+        shape = (H, W)
+        noise = np.zeros((H, W))
+    else:
+        n, H, W = images.shape
+        shape = (n, H, W)
+        noise = np.zeros((n, H, W))
+
+    # Generate noise from mixture
+    num_components = len(weights)
+    flat_shape = np.prod(shape)
+
+    # Randomly select component for each pixel
+    component_choices = np.random.choice(num_components, size=flat_shape, p=weights)
+
+    # Generate noise for each component
+    noise_flat = np.zeros(flat_shape)
+    for i in range(num_components):
+        mask = (component_choices == i)
+        count = np.sum(mask)
+        if count > 0:
+            noise_flat[mask] = np.random.normal(means[i], sigmas[i], size=count)
+
+    # Reshape to original dimensions
+    noise = noise_flat.reshape(shape)
+
+    noisy = images + noise
+    noisy = np.clip(noisy, 0.0, 1.0)
+    return noisy.astype(np.float32)
+
+def images_to_matrix(images):
+    """Convert images (n, H, W) to data matrix X of shape (p, n)"""
+    n, H, W = images.shape
+    p = H * W
+    X = images.reshape(n, p).T
+    return X
+
+def matrix_to_images(X, H, W):
+    """Convert matrix X of shape (p, n) back to images (n, H, W)"""
+    p, n = X.shape
+    assert p == H * W
+    images = X.T.reshape(n, H, W)
+    return images
+
+def mp_denoise(X):
+    """M-P law denoising (from random_matrix.py lines 673-775)"""
+    p, n = X.shape
+
+    # Center data
+    mean_vec = np.mean(X, axis=1, keepdims=True)
+    Xc = X - mean_vec
+
+    # Sample covariance
+    S = (Xc @ Xc.T) / n
+
+    # Eigen decomposition
+    eigvals, eigvecs = np.linalg.eigh(S)
+    idx = eigvals.argsort()[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+
+    # Aspect ratio
+    y = p / float(n)
+    sqrt_y = np.sqrt(y)
+
+    # Positive eigenvalues
+    pos_mask = eigvals > 1e-10
+    pos_eigs = eigvals[pos_mask]
+
+    if len(pos_eigs) < 3:
+        return X, {"y": y, "sigma2_hat": None}
+
+    # Use bottom half as noise bulk
+    half = len(pos_eigs) // 2
+    bulk_eigs = pos_eigs[half:]
+    bulk_min = np.min(bulk_eigs)
+
+    # Estimate sigma^2
+    lambda_minus_factor = (1.0 - sqrt_y) ** 2
+    sigma2_hat = bulk_min / lambda_minus_factor
+    lambda_plus = sigma2_hat * (1.0 + sqrt_y) ** 2
+
+    # Signal eigenvalues
+    signal_mask = eigvals > (lambda_plus + 1e-9)
+    num_signal = int(np.sum(signal_mask))
+
+    if num_signal == 0:
+        X_denoised = np.zeros_like(X) + mean_vec
+    else:
+        Gamma = eigvecs[:, signal_mask]
+        X_denoised = Gamma @ (Gamma.T @ X)
+        X_denoised = X_denoised + mean_vec
+
+    info = {"y": y, "sigma2_hat": sigma2_hat, "lambda_plus": lambda_plus, "num_signal": num_signal}
+    return X_denoised, info
+
+def optimize_generalized_params(X):
+    """Optimize sigma2, a, beta to match lower bound (from random_matrix.py lines 778-883)"""
+    p, n = X.shape
+
+    # Center and compute eigenvalues
+    mean_vec = np.mean(X, axis=1, keepdims=True)
+    Xc = X - mean_vec
+    S = (Xc @ Xc.T) / n
+    eigvals = np.linalg.eigvalsh(S)
+    eigvals = eigvals[::-1]
+
+    pos_mask = eigvals > 1e-10
+    pos_eigs = eigvals[pos_mask]
+
+    if len(pos_eigs) < 3:
+        return 1.0, 2.0, 0.5
+
+    y = p / float(n)
+
+    # Use bottom half to estimate noise bulk
+    half = len(pos_eigs) // 2
+    bulk_eigs = pos_eigs[half:]
+    bulk_min = np.min(bulk_eigs)
+    target_lower_bound = bulk_min
+
+    def compute_lower_bound(params):
+        sigma2, a, beta = params
+        if sigma2 <= 0 or a <= 1 or beta <= 0 or beta >= 1:
+            return np.inf
+
+        def g(t):
+            numerator = y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)
+            denominator = (a * t + 1) * (t**2 + t)
+            if abs(denominator) < 1e-12:
+                return np.inf
+            return numerator / denominator
+
+        try:
+            result_max = minimize_scalar(lambda t: -g(t), bounds=(1e-6, 100), method='bounded')
+            g_plus = -result_max.fun
+            return sigma2 * g_plus
+        except:
+            return np.inf
+
+    def objective(params):
+        lower_bound = compute_lower_bound(params)
+        if lower_bound == np.inf:
+            return 1e10
+        return (lower_bound - target_lower_bound) ** 2
+
+    x0 = [1.0, 2.0, 0.5]
+    bounds = [(0.01, 10.0), (1.01, 10.0), (0.01, 0.99)]
+
+    result = minimize(objective, x0, method='L-BFGS-B', bounds=bounds, options={'maxiter': 200, 'ftol': 1e-8})
+    return tuple(result.x)
+
+def generalized_denoise(X, sigma2=None, a=None, beta=None):
+    """Generalized covariance denoising (from random_matrix.py lines 1003-1117)"""
+    p, n = X.shape
+
+    # Auto-optimize if not provided
+    if sigma2 is None or a is None or beta is None:
+        sigma2, a, beta = optimize_generalized_params(X)
+
+    # Center data
+    mean_vec = np.mean(X, axis=1, keepdims=True)
+    Xc = X - mean_vec
+
+    # Sample covariance
+    S = (Xc @ Xc.T) / n
+
+    # Eigen decomposition
+    eigvals, eigvecs = np.linalg.eigh(S)
+    idx = eigvals.argsort()[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+
+    # Aspect ratio
+    y = p / float(n)
+
+    # Define g(t) function
+    def g(t):
+        numerator = y * beta * (a - 1) * t + (a * t + 1) * ((y - 1) * t - 1)
+        denominator = (a * t + 1) * (t**2 + t)
+        if abs(denominator) < 1e-12:
+            return np.inf
+        return numerator / denominator
+
+    # Find g_plus and g_minus
+    result_max = minimize_scalar(lambda t: -g(t), bounds=(1e-6, 100), method='bounded')
+    g_plus = -result_max.fun
+
+    result_min = minimize_scalar(g, bounds=(-1/a + 1e-6, -1e-6), method='bounded')
+    g_minus = result_min.fun
+
+    # Support bounds
+    lambda_plus = sigma2 * g_plus
+    lambda_minus = sigma2 * g_minus
+
+    # Signal eigenvalues
+    signal_mask = eigvals > (lambda_minus + 1e-9)
+    num_signal = int(np.sum(signal_mask))
+
+    if num_signal == 0:
+        X_denoised = np.zeros_like(X) + mean_vec
+    else:
+        Gamma = eigvecs[:, signal_mask]
+        X_denoised = Gamma @ (Gamma.T @ X)
+        X_denoised = X_denoised + mean_vec
+
+    info = {"y": y, "a": a, "beta": beta, "sigma2": sigma2, "num_signal": num_signal}
+    return X_denoised, info
+
+
+# --------- Desktop (PyWebView) bridge --------- #
+class Bridge:
+    def __init__(self, window):
+        self.window = window
+        self.processed_results = []
+
+    def _log(self, event, payload=None):
+        msg = {"event": event}
+        if payload is not None:
+            msg["payload"] = payload
+        print(json.dumps(msg))
+        try:
+            import sys
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+    def _update_progress_ui(self, bar_id, status_id, step, total):
+        """Update progress bar and status text in real-time using evaluate_js"""
+        if self.window and step > 0 and total > 0:
+            pct = int((step / total) * 100)
+            try:
+                # Update progress bar width
+                self.window.evaluate_js(f"document.getElementById('{bar_id}').style.width = '{pct}%';")
+                # Update status text
+                self.window.evaluate_js(f"document.getElementById('{status_id}').innerHTML = '{step}/{total} ({pct}%)';")
+            except Exception as e:
+                print(f"Progress update error: {e}")
+
+    def _update_status_ui(self, element_id, text):
+        """Update any UI element text in real-time using evaluate_js"""
+        if self.window:
+            try:
+                # Escape single quotes in text
+                text_escaped = text.replace("'", "\\'")
+                self.window.evaluate_js(f"document.getElementById('{element_id}').innerHTML = '{text_escaped}';")
+            except Exception as e:
+                print(f"Status update error: {e}")
+
+    def im_vs_z(self, params):
+        self._log("im_vs_z:start", params)
+        progress = []
+
+        def cb(step, total):
+            progress.append({"step": int(step), "total": int(total)})
+            self._update_progress_ui('bar1', 'status1', step, total)
+
+        a = float(params.get("a", 2.0))
+        y = float(params.get("y", 1.0))
+        beta = float(params.get("beta", 0.5))
+        z_min = float(params.get("z_min", 0.01))
+        z_max = float(params.get("z_max", 10.0))
+        points = int(params.get("points", 400))
+
+        result = compute_ImS_vs_Z(a, y, beta, points, z_min, z_max, progress_cb=cb)
+        explanation = (
+            "Curves show the three roots of the cubic; dashed vticks mark the Im(s)=0 crossings "
+            "where root structure flips between real and complex."
         )
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        with st.expander("Advanced Settings"):
-            # Add controls for theoretical calculation precision
-            theory_grid_points = st.slider(
-                "Theoretical grid points", 
-                min_value=100, 
-                max_value=1000, 
-                value=200, 
-                step=50,
-                help="Number of points in initial grid search for theoretical calculations",
-                key="eig_grid_points"
-            )
-            
-            theory_tolerance = st.number_input(
-                "Theoretical tolerance", 
-                min_value=1e-12, 
-                max_value=1e-6, 
-                value=1e-10, 
-                format="%.1e",
-                help="Convergence tolerance for golden section search",
-                key="eig_tolerance"
-            )
-            
-            # Debug mode
-            debug_mode = st.checkbox("Debug Mode", value=False, key="eig_debug")
-            
-            # Timeout setting
-            timeout_seconds = st.number_input(
-                "Computation timeout (seconds)", 
-                min_value=30, 
-                max_value=3600, 
-                value=300,
-                help="Maximum time allowed for computation before timeout",
-                key="eig_timeout"
-            )
-        
-        # Generate button
-        eig_generate_button = st.button("Generate Eigenvalue Analysis", 
-                                      type="primary", 
-                                      use_container_width=True,
-                                      key="eig_generate")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with right_column:
-        # Main visualization area
-        st.markdown('<div class="dashboard-container">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-header">Eigenvalue Analysis Results</div>', unsafe_allow_html=True)
-        
-        # Container for the analysis results
-        eig_results_container = st.container()
-        
-        # Process when generate button is clicked
-        if eig_generate_button:
-            with eig_results_container:
-                # Show progress
-                progress_container = st.container()
-                with progress_container:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                
-                try:
-                    # Create data file path
-                    data_file = os.path.join(output_dir, "eigenvalue_data.json")
-                    
-                    # Delete previous output if exists
-                    if os.path.exists(data_file):
-                        os.remove(data_file)
-                    
-                    # Build command for eigenvalue analysis with the proper arguments
-                    cmd = [
-                        executable,
-                        "eigenvalues",  # Mode argument
-                        str(n),
-                        str(p),
-                        str(a),
-                        str(y),
-                        str(fineness),
-                        str(theory_grid_points),
-                        str(theory_tolerance),
-                        data_file
-                    ]
-                    
-                    # Run the command
-                    status_text.text("Running eigenvalue analysis...")
-                    
-                    if debug_mode:
-                        success, stdout, stderr = run_command(cmd, True, timeout=timeout_seconds)
-                        # Process stdout for progress updates
-                        if success:
-                            progress_bar.progress(1.0)
-                    else:
-                        # Start the process with pipe for stdout to read progress
-                        process = subprocess.Popen(
-                            cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                            bufsize=1,
-                            universal_newlines=True
-                        )
-                        
-                        # Track progress from stdout
-                        success = True
-                        stdout_lines = []
-                        
-                        start_time = time.time()
-                        while True:
-                            # Check for timeout
-                            if time.time() - start_time > timeout_seconds:
-                                process.kill()
-                                status_text.error(f"Computation timed out after {timeout_seconds} seconds")
-                                success = False
-                                break
-                                
-                            # Try to read a line (non-blocking)
-                            line = process.stdout.readline()
-                            if not line and process.poll() is not None:
-                                break
-                                
-                            if line:
-                                stdout_lines.append(line)
-                                if line.startswith("PROGRESS:"):
-                                    try:
-                                        # Update progress bar
-                                        progress_value = float(line.split(":")[1].strip())
-                                        progress_bar.progress(progress_value)
-                                        status_text.text(f"Calculating... {int(progress_value * 100)}% complete")
-                                    except:
-                                        pass
-                                elif line:
-                                    status_text.text(line.strip())
-                                    
-                        # Get the return code and stderr
-                        returncode = process.poll()
-                        stderr = process.stderr.read()
-                        
-                        if returncode != 0:
-                            success = False
-                            st.error(f"Error executing the analysis: {stderr}")
-                            with st.expander("Error Details"):
-                                st.code(stderr)
-                    
-                    if success:
-                        progress_bar.progress(1.0)
-                        status_text.text("Analysis complete! Generating visualization...")
-                        
-                        # Check if the output file was created
-                        if not os.path.exists(data_file):
-                            st.error(f"Output file not created: {data_file}")
-                            st.stop()
-                        
-                        try:
-                            # Load the results from the JSON file
-                            with open(data_file, 'r') as f:
-                                data = json.load(f)
-                            
-                            # Process data - convert string values to numeric
-                            beta_values = np.array([safe_convert_to_numeric(x) for x in data['beta_values']])
-                            max_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['max_eigenvalues']])
-                            min_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['min_eigenvalues']])
-                            theoretical_max = np.array([safe_convert_to_numeric(x) for x in data['theoretical_max']])
-                            theoretical_min = np.array([safe_convert_to_numeric(x) for x in data['theoretical_min']])
-                            
-                            # Create an interactive plot using Plotly
-                            fig = go.Figure()
-                            
-                            # Add traces for each line
-                            fig.add_trace(go.Scatter(
-                                x=beta_values, 
-                                y=max_eigenvalues,
-                                mode='lines+markers',
-                                name='Empirical Max Eigenvalue',
-                                line=dict(color=color_max, width=3),
-                                marker=dict(
-                                    symbol='circle',
-                                    size=8,
-                                    color=color_max,
-                                    line=dict(color='white', width=1)
-                                ),
-                                hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
-                            ))
-                            
-                            fig.add_trace(go.Scatter(
-                                x=beta_values, 
-                                y=min_eigenvalues,
-                                mode='lines+markers',
-                                name='Empirical Min Eigenvalue',
-                                line=dict(color=color_min, width=3),
-                                marker=dict(
-                                    symbol='circle',
-                                    size=8,
-                                    color=color_min,
-                                    line=dict(color='white', width=1)
-                                ),
-                                hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
-                            ))
-                            
-                            fig.add_trace(go.Scatter(
-                                x=beta_values, 
-                                y=theoretical_max,
-                                mode='lines+markers',
-                                name='Theoretical Max',
-                                line=dict(color=color_theory_max, width=3),
-                                marker=dict(
-                                    symbol='diamond',
-                                    size=8,
-                                    color=color_theory_max,
-                                    line=dict(color='white', width=1)
-                                ),
-                                hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
-                            ))
-                            
-                            fig.add_trace(go.Scatter(
-                                x=beta_values, 
-                                y=theoretical_min,
-                                mode='lines+markers',
-                                name='Theoretical Min',
-                                line=dict(color=color_theory_min, width=3),
-                                marker=dict(
-                                    symbol='diamond',
-                                    size=8,
-                                    color=color_theory_min,
-                                    line=dict(color='white', width=1)
-                                ),
-                                hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
-                            ))
-                            
-                            # Configure layout for better appearance
-                            fig.update_layout(
-                                title={
-                                    'text': f'Eigenvalue Analysis: n={n}, p={p}, a={a}, y={y:.4f}',
-                                    'font': {'size': 24, 'color': '#0e1117'},
-                                    'y': 0.95,
-                                    'x': 0.5,
-                                    'xanchor': 'center',
-                                    'yanchor': 'top'
-                                },
-                                xaxis={
-                                    'title': {'text': 'β Parameter', 'font': {'size': 18, 'color': '#424242'}},
-                                    'tickfont': {'size': 14},
-                                    'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                    'showgrid': True
-                                },
-                                yaxis={
-                                    'title': {'text': 'Eigenvalues', 'font': {'size': 18, 'color': '#424242'}},
-                                    'tickfont': {'size': 14},
-                                    'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                                    'showgrid': True
-                                },
-                                plot_bgcolor='rgba(250, 250, 250, 0.8)',
-                                paper_bgcolor='rgba(255, 255, 255, 0.8)',
-                                hovermode='closest',
-                                legend={
-                                    'font': {'size': 14},
-                                    'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                                    'bordercolor': 'rgba(200, 200, 200, 0.5)',
-                                    'borderwidth': 1
-                                },
-                                margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
-                                height=600,
-                            )
-                            
-                            # Add custom modebar buttons
-                            fig.update_layout(
-                                modebar_add=[
-                                    'drawline', 'drawopenpath', 'drawclosedpath',
-                                    'drawcircle', 'drawrect', 'eraseshape'
-                                ],
-                                modebar_remove=['lasso2d', 'select2d'],
-                                dragmode='zoom'
-                            )
-                            
-                            # Clear progress container
-                            progress_container.empty()
-                            
-                            # Display the interactive plot in Streamlit
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                            # Display statistics in a cleaner way
-                            st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("Max Empirical", f"{max_eigenvalues.max():.4f}")
-                            with col2:
-                                st.metric("Min Empirical", f"{min_eigenvalues.min():.4f}")
-                            with col3:
-                                st.metric("Max Theoretical", f"{theoretical_max.max():.4f}")
-                            with col4:
-                                st.metric("Min Theoretical", f"{theoretical_min.min():.4f}")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                                
-                        except json.JSONDecodeError as e:
-                            st.error(f"Error parsing JSON results: {str(e)}")
-                            if os.path.exists(data_file):
-                                with open(data_file, 'r') as f:
-                                    content = f.read()
-                                st.code(content[:1000] + "..." if len(content) > 1000 else content)
-                
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
-                    if debug_mode:
-                        st.exception(e)
-        
-        else:
-            # Try to load existing data if available
-            data_file = os.path.join(output_dir, "eigenvalue_data.json")
-            if os.path.exists(data_file):
-                try:
-                    with open(data_file, 'r') as f:
-                        data = json.load(f)
-                    
-                    # Process data - convert string values to numeric
-                    beta_values = np.array([safe_convert_to_numeric(x) for x in data['beta_values']])
-                    max_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['max_eigenvalues']])
-                    min_eigenvalues = np.array([safe_convert_to_numeric(x) for x in data['min_eigenvalues']])
-                    theoretical_max = np.array([safe_convert_to_numeric(x) for x in data['theoretical_max']])
-                    theoretical_min = np.array([safe_convert_to_numeric(x) for x in data['theoretical_min']])
-                    
-                    # Create an interactive plot using Plotly
-                    fig = go.Figure()
-                    
-                    # Add traces for each line
-                    fig.add_trace(go.Scatter(
-                        x=beta_values, 
-                        y=max_eigenvalues,
-                        mode='lines+markers',
-                        name='Empirical Max Eigenvalue',
-                        line=dict(color=color_max, width=3),
-                        marker=dict(
-                            symbol='circle',
-                            size=8,
-                            color=color_max,
-                            line=dict(color='white', width=1)
-                        ),
-                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Max</extra>'
-                    ))
-                    
-                    fig.add_trace(go.Scatter(
-                        x=beta_values, 
-                        y=min_eigenvalues,
-                        mode='lines+markers',
-                        name='Empirical Min Eigenvalue',
-                        line=dict(color=color_min, width=3),
-                        marker=dict(
-                            symbol='circle',
-                            size=8,
-                            color=color_min,
-                            line=dict(color='white', width=1)
-                        ),
-                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Empirical Min</extra>'
-                    ))
-                    
-                    fig.add_trace(go.Scatter(
-                        x=beta_values, 
-                        y=theoretical_max,
-                        mode='lines+markers',
-                        name='Theoretical Max',
-                        line=dict(color=color_theory_max, width=3),
-                        marker=dict(
-                            symbol='diamond',
-                            size=8,
-                            color=color_theory_max,
-                            line=dict(color='white', width=1)
-                        ),
-                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Max</extra>'
-                    ))
-                    
-                    fig.add_trace(go.Scatter(
-                        x=beta_values, 
-                        y=theoretical_min,
-                        mode='lines+markers',
-                        name='Theoretical Min',
-                        line=dict(color=color_theory_min, width=3),
-                        marker=dict(
-                            symbol='diamond',
-                            size=8,
-                            color=color_theory_min,
-                            line=dict(color='white', width=1)
-                        ),
-                        hovertemplate='β: %{x:.3f}<br>Value: %{y:.6f}<extra>Theoretical Min</extra>'
-                    ))
-                    
-                    # Configure layout for better appearance
-                    fig.update_layout(
-                        title={
-                            'text': f'Eigenvalue Analysis (Previous Result)',
-                            'font': {'size': 24, 'color': '#0e1117'},
-                            'y': 0.95,
-                            'x': 0.5,
-                            'xanchor': 'center',
-                            'yanchor': 'top'
-                        },
-                        xaxis={
-                            'title': {'text': 'β Parameter', 'font': {'size': 18, 'color': '#424242'}},
-                            'tickfont': {'size': 14},
-                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                            'showgrid': True
-                        },
-                        yaxis={
-                            'title': {'text': 'Eigenvalues', 'font': {'size': 18, 'color': '#424242'}},
-                            'tickfont': {'size': 14},
-                            'gridcolor': 'rgba(220, 220, 220, 0.5)',
-                            'showgrid': True
-                        },
-                        plot_bgcolor='rgba(250, 250, 250, 0.8)',
-                        paper_bgcolor='rgba(255, 255, 255, 0.8)',
-                        hovermode='closest',
-                        legend={
-                            'font': {'size': 14},
-                            'bgcolor': 'rgba(255, 255, 255, 0.9)',
-                            'bordercolor': 'rgba(200, 200, 200, 0.5)',
-                            'borderwidth': 1
-                        },
-                        margin={'l': 60, 'r': 30, 't': 100, 'b': 60},
-                        height=600
-                    )
-                    
-                    # Display the interactive plot in Streamlit
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.info("This is the previous analysis result. Adjust parameters and click 'Generate Analysis' to create a new visualization.")
-                    
-                except Exception as e:
-                    st.info("Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
+        self._log("im_vs_z:done", {"progress": progress})
+        return {
+            "data": result,
+            "params": {"a": a, "y": y, "beta": beta},
+            "progress": progress,
+            "explanation": explanation
+        }
+
+    def roots_vs_beta(self, params):
+        self._log("roots_vs_beta:start", params)
+        progress = []
+
+        def cb(step, total):
+            progress.append({"step": int(step), "total": int(total)})
+            self._update_progress_ui('bar2', 'status2', step, total)
+
+        z = float(params.get("z", 1.0))
+        y = float(params.get("y", 1.0))
+        a = float(params.get("a", 1.0))
+        beta_min = float(params.get("beta_min", 0.0))
+        beta_max = float(params.get("beta_max", 1.0))
+        points = int(params.get("points", 400))
+
+        # Compute roots
+        beta_points = np.linspace(beta_min, beta_max, points)
+        all_roots = []
+        discriminants = []
+
+        pbar = tqdm(total=points, desc="Computing roots vs beta")
+        for idx, beta in enumerate(beta_points):
+            roots = compute_cubic_roots(z, beta, a, y)
+            roots = sorted(roots, key=lambda x: (abs(x.imag), x.real))
+            all_roots.append(roots)
+            discriminants.append(generate_cubic_discriminant(z, beta, a, y))
+            pbar.update(1)
+            if cb:
+                cb(idx + 1, points)
+        pbar.close()
+
+        all_roots = np.array(all_roots)
+        tracked_roots = track_roots_consistently(beta_points, all_roots)
+
+        explanation = (
+            "Im(s) highlights where roots gain imaginary parts; Re(s) shows ordering; the discriminant crosses zero at transitions between 3 real roots and 1 real + 2 complex."
+        )
+        self._log("roots_vs_beta:done", {"progress": progress})
+        return {
+            "data": {
+                "beta_values": beta_points.tolist(),
+                "ims_values": np.imag(tracked_roots).tolist(),
+                "real_values": np.real(tracked_roots).tolist(),
+                "discriminants": discriminants
+            },
+            "params": {"z": z, "y": y, "a": a},
+            "progress": progress,
+            "explanation": explanation,
+        }
+
+    def eigen_distribution(self, params):
+        self._log("eigen:start", params)
+        progress = []
+
+        def cb(step, total):
+            progress.append({"step": int(step), "total": int(total)})
+            self._update_progress_ui('bar4', 'status4', step, total)
+
+        beta = float(params.get("beta", 0.5))
+        a = float(params.get("a", 2.0))
+        n = int(params.get("n", 400))
+        p = int(params.get("p", max(1, n)))
+        p = max(1, p)
+        y = p / n if n else 1.0
+        seed = int(params.get("seed", 42))
+
+        # Generate eigenvalues
+        y_eff = y if y > 1 else 1 / y
+        np.random.seed(seed)
+
+        print("Generating eigenvalue distribution...")
+        total_steps = 5
+        with tqdm(total=total_steps, desc="Eigenvalue computation") as pbar:
+            p_dim = int(y_eff * n)
+            k = int(np.floor(beta * p_dim))
+            diag_entries = np.concatenate([np.full(k, a), np.full(p_dim - k, 1.0)])
+            np.random.shuffle(diag_entries)
+            T_n = np.diag(diag_entries)
+            pbar.update(1)
+            if cb:
+                cb(1, total_steps)
+
+            X = np.random.randn(p_dim, n)
+            pbar.update(1)
+            if cb:
+                cb(2, total_steps)
+
+            S_n = (1 / n) * (X @ X.T)
+            pbar.update(1)
+            if cb:
+                cb(3, total_steps)
+
+            B_n = S_n @ T_n
+            eigenvalues = np.linalg.eigvalsh(B_n)
+            pbar.update(1)
+            if cb:
+                cb(4, total_steps)
+
+            kde = gaussian_kde(eigenvalues)
+            x_vals = np.linspace(float(np.min(eigenvalues)), float(np.max(eigenvalues)), 400)
+            kde_vals = kde(x_vals)
+            pbar.update(1)
+            if cb:
+                cb(5, total_steps)
+
+        stats = {
+            "min": float(np.min(eigenvalues)),
+            "max": float(np.max(eigenvalues)),
+            "mean": float(np.mean(eigenvalues)),
+            "std": float(np.std(eigenvalues)),
+        }
+        explanation = (
+            "Histogram + KDE of eigenvalues for B_n = S_n T_n with mixed diagonal entries. Use stats to compare spread."
+        )
+        self._log("eigen:done", {"stats": stats})
+        return {
+            "data": {
+                "eigenvalues": eigenvalues.tolist(),
+                "kde_x": x_vals.tolist(),
+                "kde_y": kde_vals.tolist()
+            },
+            "stats": stats,
+            "progress": progress,
+            "explanation": explanation
+        }
+
+    def list_random_matrix_folders(self):
+        """List all folders in .random_matrix directory"""
+        try:
+            base_folder = get_random_matrix_folder()
+            folders = [f.name for f in base_folder.iterdir() if f.is_dir() and f.name != "temp"]
+            return {"folders": sorted(folders)}
+        except Exception as e:
+            print(f"Error listing folders: {e}")
+            return {"folders": []}
+
+    def get_folder_contents(self, folder_name):
+        """Get contents of a specific folder"""
+        try:
+            folder_path = get_random_matrix_folder() / folder_name
+            files = []
+            for f in sorted(folder_path.iterdir()):
+                if f.suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                    with open(f, 'rb') as img_file:
+                        img_data = base64.b64encode(img_file.read()).decode('utf-8')
+                    files.append({"name": f.name, "data": img_data})
+            return {"files": files[:50]}  # Limit to 50 images
+        except Exception as e:
+            print(f"Error getting folder contents: {e}")
+            return {"files": []}
+
+    def import_local_folder(self, params):
+        """Import local folder with images to .random_matrix folder, preserving structure"""
+        try:
+            files = params.get("files", [])
+            folder_name = params.get("folder", "imported")
+
+            folder_path = get_random_matrix_folder() / folder_name
+            folder_path.mkdir(exist_ok=True)
+
+            for file_data in files:
+                # Get relative path from the selected folder
+                relative_path = file_data.get("path", file_data["name"])
+
+                # Create full output path, preserving subfolder structure
+                output_path = folder_path / relative_path
+
+                # Create parent directories if needed
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Decode and save image with original name
+                img_bytes = base64.b64decode(file_data["data"])
+                img = Image.open(io.BytesIO(img_bytes))
+
+                # Save in original format (don't force convert to L)
+                img.save(output_path)
+
+            return {"success": True, "count": len(files), "folder": folder_name}
+        except Exception as e:
+            print(f"Error importing folder: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
+
+    def download_images_playwright(self, params):
+        """Download images using playwright (simplified version - requires playwright installation)"""
+        try:
+            from playwright.sync_api import sync_playwright
+            import time
+            import random
+
+            url = params.get("url")
+            count = params.get("count", 10)
+            scale = params.get("scale", 100)
+            folder_name = params.get("folder", "downloaded")
+
+            folder_path = get_random_matrix_folder() / folder_name
+            folder_path.mkdir(exist_ok=True)
+
+            images = []
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+                page = context.new_page()
+
+                # Simple download: navigate to URL and screenshot
+                page.goto(url, timeout=60000)
+                time.sleep(random.uniform(2, 4))
+
+                for i in range(count):
+                    screenshot_bytes = page.screenshot()
+                    img = Image.open(io.BytesIO(screenshot_bytes)).convert('L')
+                    img = img.resize((scale, scale), Image.BICUBIC)
+
+                    output_path = folder_path / f"{i:03d}.png"
+                    img.save(output_path)
+                    images.append(output_path)
+
+                    if i < count - 1:
+                        time.sleep(random.uniform(1, 2))
+
+                browser.close()
+
+            return {"success": True, "count": len(images), "folder": folder_name}
+        except ImportError:
+            return {"success": False, "error": "Playwright not installed. Please run: pip install playwright && playwright install chromium"}
+        except Exception as e:
+            print(f"Error downloading images: {e}")
+            return {"success": False, "error": str(e)}
+
+    def process_images(self, params):
+        """Process images with denoising methods.
+
+        params keys:
+          folder, method1, method2, noise_type, laplacian_scale, random_seed,
+          (optional) mog_weights/means/sigmas,
+          train_files: list[str]   -- filenames in folder used as the training matrix
+          test_files:  list[str]   -- filenames to be denoised (each becomes a test column)
+          batch_size:  int         -- how many test images denoise together per call
+        """
+        try:
+            folder_name = params.get("folder")
+            method1 = params.get("method1")
+            method2 = params.get("method2")
+            noise_type = params.get("noise_type", "laplacian")
+            laplacian_scale = params.get("laplacian_scale", 0.1)
+            random_seed = params.get("random_seed", None)
+            train_count = params.get("train_count")
+            test_count = params.get("test_count")
+            batch_size = max(1, int(params.get("batch_size", 1)))
+
+            # Step 1: Load images
+            self._update_status_ui('status_process', 'Step 1/6: Loading images...')
+            self._update_progress_ui('bar_process', 'status_process', 1, 6)
+
+            folder_path = get_random_matrix_folder() / folder_name
+            all_files = sorted([f for f in folder_path.iterdir() if f.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+            if not all_files:
+                return {"success": False, "error": "No images found in folder"}
+
+            total = len(all_files)
+            n_train_req = int(train_count) if train_count is not None else total
+            n_test_req = int(test_count) if test_count is not None else max(1, total - n_train_req)
+            n_train_req = max(2, min(n_train_req, total))
+            # Test images come from the files AFTER the training slice; if not enough remain,
+            # fall back to drawing from the training slice (overlap allowed).
+            remaining = total - n_train_req
+            if remaining >= 1:
+                n_test_eff = max(1, min(n_test_req, remaining))
+                train_paths = all_files[:n_train_req]
+                test_paths = all_files[n_train_req:n_train_req + n_test_eff]
             else:
-                # Show placeholder
-                st.info("Set parameters and click 'Generate Eigenvalue Analysis' to create a visualization.")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+                n_test_eff = max(1, min(n_test_req, n_train_req))
+                train_paths = all_files[:n_train_req]
+                test_paths = all_files[:n_test_eff]
 
- 
-# ----- Tab 2: Complex Root Analysis -----
-with tab2:
-    st.header("Complex Root Analysis")
-    plot_tabs = st.tabs(["Im{s} vs. z", "Im{s} vs. β", "Phase Diagram", "Eigenvalue Distribution"])
+            def _load(paths):
+                arrs = []
+                for pth in paths:
+                    img = Image.open(pth).convert('L')
+                    arrs.append(np.array(img, dtype=np.float32) / 255.0)
+                return np.stack(arrs, axis=0) if arrs else np.zeros((0, 0, 0), dtype=np.float32)
 
-    with plot_tabs[0]:
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            beta_z = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_tab2_z")
-            y_z = st.number_input("y", value=1.0, key="y_tab2_z")
-            z_a_z = st.number_input("z_a", value=1.0, key="z_a_tab2_z")
-            z_min_z = st.number_input("z_min", value=-10.0, key="z_min_tab2_z")
-            z_max_z = st.number_input("z_max", value=10.0, key="z_max_tab2_z")
-            with st.expander("Resolution Settings", expanded=False):
-                z_points = st.slider("z grid points", min_value=100, max_value=2000, value=500, step=100, key="z_points_z")
-        if st.button("Compute Complex Roots vs. z", key="tab2_button_z"):
-            with col2:
-                fig_im, fig_re, fig_disc = generate_root_plots(beta_z, y_z, z_a_z, z_min_z, z_max_z, z_points)
-                if fig_im is not None and fig_re is not None and fig_disc is not None:
-                    st.plotly_chart(fig_im, use_container_width=True)
-                    st.plotly_chart(fig_re, use_container_width=True)
-                    st.plotly_chart(fig_disc, use_container_width=True)
-                    with st.expander("Root Structure Analysis", expanded=False):
-                        st.markdown("""
-                        ### Root Structure Explanation
+            train_imgs = _load(train_paths)
+            test_imgs = _load(test_paths)
+            n_train = train_imgs.shape[0]
+            n_test = test_imgs.shape[0]
+            if n_train < 2:
+                return {"success": False, "error": "Need at least 2 training images."}
+            if n_test < 1:
+                return {"success": False, "error": "Need at least 1 test image."}
 
-                        The red dashed vertical lines mark the points where the cubic discriminant equals zero.
-                        At these points, the cubic equation's root structure changes:
+            H, W = train_imgs.shape[1], train_imgs.shape[2]
+            p = H * W
+            y = p / float(n_train + 1)
+            self._update_status_ui(
+                'processing_info',
+                f'<strong>Train n={n_train}</strong>, test={n_test}, batch={batch_size} '
+                f'(Size: {H}×{W}, p={p}, y=p/(n+1)={y:.4f})')
 
-                        - When the discriminant is positive, the cubic has three distinct real roots.
-                        - When the discriminant is negative, the cubic has one real root and two complex conjugate roots.
-                        - When the discriminant is exactly zero, the cubic has at least two equal roots.
+            # Step 2: Add noise to a stack — done per-batch to stay deterministic with seed
+            def _add_noise(stack, seed_offset=0):
+                seed = (random_seed + seed_offset) if random_seed is not None else None
+                if noise_type == "laplacian":
+                    return add_laplacian_noise(stack, scale=laplacian_scale, seed=seed)
+                elif noise_type == "mixture_gaussian":
+                    weights = params.get("mog_weights", [0.6, 0.3, 0.1])
+                    means = params.get("mog_means", [0.0, 0.0, 0.0])
+                    sigmas = params.get("mog_sigmas", [0.1, 0.05, 0.3])
+                    return add_mixture_gaussian_noise(stack, weights, means, sigmas, seed=seed)
+                else:
+                    return add_laplacian_noise(stack, scale=laplacian_scale, seed=seed)
 
-                        These transition points align perfectly with the z*(β) boundary curves from the first tab,
-                        which represent exactly these transitions in the (β,z) plane.
-                        """)
+            self._update_status_ui('status_process', f'Step 2/6: Noise = {noise_type} ...')
+            self._update_progress_ui('bar_process', 'status_process', 2, 6)
 
-    with plot_tabs[1]:
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            z_beta = st.number_input("z", value=1.0, key="z_tab2_beta")
-            y_beta = st.number_input("y", value=1.0, key="y_tab2_beta")
-            z_a_beta = st.number_input("z_a", value=1.0, key="z_a_tab2_beta")
-            beta_min = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_tab2")
-            beta_max = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_tab2")
-            with st.expander("Resolution Settings", expanded=False):
-                beta_points = st.slider("β grid points", min_value=100, max_value=1000, value=500, step=100, key="beta_points")
-        if st.button("Compute Complex Roots vs. β", key="tab2_button_beta"):
-            with col2:
-                fig_im_beta, fig_re_beta, fig_disc = generate_roots_vs_beta_plots(z_beta, y_beta, z_a_beta, beta_min, beta_max, beta_points)
-                if fig_im_beta is not None and fig_re_beta is not None and fig_disc is not None:
-                    st.plotly_chart(fig_im_beta, use_container_width=True)
-                    st.plotly_chart(fig_re_beta, use_container_width=True)
-                    st.plotly_chart(fig_disc, use_container_width=True)
-                    transition_points, structure_types = analyze_complex_root_structure(np.linspace(beta_min, beta_max, beta_points), z_beta, z_a_beta, y_beta)
-                    if transition_points:
-                        st.subheader("Root Structure Transition Points")
-                        for i, beta in enumerate(transition_points):
-                            prev_type = structure_types[i]
-                            next_type = structure_types[i+1] if i+1 < len(structure_types) else "unknown"
-                            st.markdown(f"- At β = {beta:.6f}: Transition from {prev_type} roots to {next_type} roots")
-                    else:
-                        st.info("No transitions detected in root structure across this β range.")
-                    with st.expander("Analysis Explanation", expanded=False):
-                        st.markdown("""
-                        ### Interpreting the Plots
+            # Storage for outputs (test images only)
+            method1_images = np.zeros_like(test_imgs)
+            method2_images = np.zeros_like(test_imgs)
+            noisy_test_images = np.zeros_like(test_imgs)
+            method1_details_last = ""
+            method2_details_last = ""
+            method1_name = "M-P Law (rmt-denoise)" if method1 == "mp" else "Generalized Covariance (rmt-denoise)"
+            method2_name = "M-P Law (rmt-denoise)" if method2 == "mp" else "Generalized Covariance (rmt-denoise)"
 
-                        - **Im{s} vs. β**: Shows how the imaginary parts of the roots change with β. When all curves are at Im{s}=0, all roots are real.
-                        - **Re{s} vs. β**: Shows how the real parts of the roots change with β.
-                        - **Discriminant Plot**: The cubic discriminant changes sign at points where the root structure changes.
-                          - When discriminant < 0: The cubic has one real root and two complex conjugate roots.
-                          - When discriminant > 0: The cubic has three distinct real roots.
-                          - When discriminant = 0: The cubic has multiple roots (at least two roots are equal).
+            def _run(method_code, noisy_stack, train_clean, batch_clean):
+                """Returns denoised stack of shape (n_train+b, H, W) and details string.
+                For gen_cov, runs once per test image (lib oracle uses single test_index)."""
+                b = batch_clean.shape[0]
+                if method_code == "mp":
+                    d = rmt_denoise.MPLawDenoiser()
+                    out = d.denoise(noisy_stack)
+                    info = d.info
+                    details = (f"M-P Law: σ²={info.get('sigma2', 0):.6f}, "
+                               f"λ₊={info.get('threshold', 0):.4f}, "
+                               f"rank={info.get('rank', 0)}, y={info.get('y', 0):.4f}")
+                    return out, details
+                else:
+                    out = np.zeros_like(noisy_stack)
+                    last_a = last_beta = None
+                    for k in range(b):
+                        # Replace the test-column slot with kth batch image so
+                        # GeneralizedCovDenoiser sees a single test image at index -1.
+                        single_stack = np.concatenate(
+                            [noisy_stack[:n_train], noisy_stack[n_train + k:n_train + k + 1]],
+                            axis=0)
+                        d = rmt_denoise.GeneralizedCovDenoiser(
+                            apply_t=True, color_resize=True, center=True)
+                        single_out = d.denoise(single_stack, clean=batch_clean[k], test_index=-1)
+                        out[:n_train] = single_out[:n_train]
+                        out[n_train + k] = single_out[-1]
+                        last_a = getattr(d, "a", None)
+                        last_beta = getattr(d, "beta", None)
+                    a_str = f"{last_a:.4f}" if isinstance(last_a, (int, float)) else "n/a"
+                    b_str = f"{last_beta:.4f}" if isinstance(last_beta, (int, float)) else "n/a"
+                    details = (f"Gen. Cov (oracle): a≈{a_str}, β≈{b_str} (last batch), "
+                               f"T applied, color-resize applied")
+                    return out, details
 
-                        The vertical red dashed lines mark the transition points where the root structure changes.
-                        """)
+            # Iterate test images in batches
+            self._update_status_ui('status_process', 'Step 3/6: Denoising in batches ...')
+            self._update_progress_ui('bar_process', 'status_process', 3, 6)
+            num_batches = (n_test + batch_size - 1) // batch_size
+            for bi in range(num_batches):
+                lo = bi * batch_size
+                hi = min(lo + batch_size, n_test)
+                batch_clean = test_imgs[lo:hi]
+                stack_clean = np.concatenate([train_imgs, batch_clean], axis=0)
+                noisy_stack = _add_noise(stack_clean, seed_offset=bi)
+                noisy_test_images[lo:hi] = noisy_stack[n_train:]
 
-    with plot_tabs[2]:
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            z_a_phase = st.number_input("z_a", value=1.0, key="z_a_phase")
-            y_phase = st.number_input("y", value=1.0, key="y_phase")
-            beta_min_phase = st.number_input("β_min", value=0.0, min_value=0.0, max_value=1.0, key="beta_min_phase")
-            beta_max_phase = st.number_input("β_max", value=1.0, min_value=0.0, max_value=1.0, key="beta_max_phase")
-            z_min_phase = st.number_input("z_min", value=-10.0, key="z_min_phase")
-            z_max_phase = st.number_input("z_max", value=10.0, key="z_max_phase")
-            with st.expander("Resolution Settings", expanded=False):
-                beta_steps_phase = st.slider("β grid points", min_value=20, max_value=200, value=100, step=20, key="beta_steps_phase")
-                z_steps_phase = st.slider("z grid points", min_value=20, max_value=200, value=100, step=20, key="z_steps_phase")
-        if st.button("Generate Phase Diagram", key="tab2_button_phase"):
-            with col2:
-                st.info("Generating phase diagram. This may take a while depending on resolution...")
-                fig_phase = generate_phase_diagram(z_a_phase, y_phase, beta_min_phase, beta_max_phase, z_min_phase, z_max_phase, beta_steps_phase, z_steps_phase)
-                if fig_phase is not None:
-                    st.plotly_chart(fig_phase, use_container_width=True)
-                    with st.expander("Phase Diagram Explanation", expanded=False):
-                        st.markdown("""
-                        ### Understanding the Phase Diagram
+                m1_out, method1_details_last = _run(method1, noisy_stack, train_imgs, batch_clean)
+                m2_out, method2_details_last = _run(method2, noisy_stack, train_imgs, batch_clean)
 
-                        This heatmap shows the regions in the (β, z) plane where:
+                method1_images[lo:hi] = m1_out[n_train:]
+                method2_images[lo:hi] = m2_out[n_train:]
 
-                        - **Red Regions**: The cubic equation has all real roots
-                        - **Blue Regions**: The cubic equation has one real root and two complex conjugate roots
+                self._update_status_ui(
+                    'status_process',
+                    f'Step 3/6: Batch {bi + 1}/{num_batches} (test {lo + 1}-{hi}/{n_test})')
 
-                        The boundaries between these regions represent values where the discriminant is zero,
-                        which are the exact same curves as the z*(β) boundaries in the first tab. This phase
-                        diagram provides a comprehensive view of the eigenvalue support structure.
-                        """)
+            self._update_status_ui('method1_info', method1_details_last)
+            self._update_status_ui('method2_info', method2_details_last)
+            self._update_progress_ui('bar_process', 'status_process', 4, 6)
 
-    with plot_tabs[3]:
-        st.subheader("Eigenvalue Distribution for B_n = S_n T_n")
-        with st.expander("Simulation Information", expanded=False):
-            st.markdown("""
-            This simulation generates the eigenvalue distribution of B_n as n→∞, where:
-            - B_n = (1/n)XX^T with X being a p×n matrix
-            - p/n → y as n→∞
-            - The diagonal entries of T_n follow distribution β·δ(z_a) + (1-β)·δ(1)
-            """)
-        col_eigen1, col_eigen2 = st.columns([1, 2])
-        with col_eigen1:
-            beta_eigen = st.number_input("β", value=0.5, min_value=0.0, max_value=1.0, key="beta_eigen")
-            y_eigen = st.number_input("y", value=1.0, key="y_eigen")
-            z_a_eigen = st.number_input("z_a", value=1.0, key="z_a_eigen")
-            n_samples = st.slider("Number of samples (n)", min_value=100, max_value=2000, value=1000, step=100)
-            sim_seed = st.number_input("Random seed", min_value=1, max_value=1000, value=42, step=1)
-            show_theoretical = st.checkbox("Show theoretical boundaries", value=True)
-            show_empirical_stats = st.checkbox("Show empirical statistics", value=True)
-        if st.button("Generate Eigenvalue Distribution", key="tab2_eigen_button"):
-            with col_eigen2:
-                fig_eigen, eigenvalues = generate_eigenvalue_distribution(beta_eigen, y_eigen, z_a_eigen, n=n_samples, seed=sim_seed)
-                if show_theoretical:
-                    betas = np.array([beta_eigen])
-                    min_eig, max_eig = compute_eigenvalue_support_boundaries(z_a_eigen, y_eigen, betas, n_samples=n_samples, seeds=5)
-                    fig_eigen.add_vline(x=min_eig[0], line=dict(color="red", width=2, dash="dash"), annotation_text="Min theoretical", annotation_position="top right")
-                    fig_eigen.add_vline(x=max_eig[0], line=dict(color="red", width=2, dash="dash"), annotation_text="Max theoretical", annotation_position="top left")
-                st.plotly_chart(fig_eigen, use_container_width=True)
-                if show_theoretical and show_empirical_stats:
-                    empirical_min = eigenvalues.min()
-                    empirical_max = eigenvalues.max()
-                    st.markdown("### Comparison of Empirical vs Theoretical Bounds")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Theoretical Min", f"{min_eig[0]:.4f}")
-                        st.metric("Theoretical Max", f"{max_eig[0]:.4f}")
-                        st.metric("Theoretical Width", f"{max_eig[0] - min_eig[0]:.4f}")
-                    with col2:
-                        st.metric("Empirical Min", f"{empirical_min:.4f}")
-                        st.metric("Empirical Max", f"{empirical_max:.4f}")
-                        st.metric("Empirical Width", f"{empirical_max - empirical_min:.4f}")
-                    with col3:
-                        st.metric("Min Difference", f"{empirical_min - min_eig[0]:.4f}")
-                        st.metric("Max Difference", f"{empirical_max - max_eig[0]:.4f}")
-                        st.metric("Width Difference", f"{(empirical_max - empirical_min) - (max_eig[0] - min_eig[0]):.4f}")
-                if show_empirical_stats:
-                    st.markdown("### Eigenvalue Statistics")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Mean", f"{np.mean(eigenvalues):.4f}")
-                        st.metric("Median", f"{np.median(eigenvalues):.4f}")
-                    with col2:
-                        st.metric("Standard Deviation", f"{np.std(eigenvalues):.4f}")
-                        st.metric("Interquartile Range", f"{np.percentile(eigenvalues, 75) - np.percentile(eigenvalues, 25):.4f}")
-# Add footer with instructions
-st.markdown("""
-<div class="footer">
-    <h3>About the Matrix Analysis Dashboard</h3>
-    <p>This dashboard performs two types of analyses using different computational approaches:</p>
-    <ol>
-        <li><strong>Eigenvalue Analysis (C++):</strong> Uses C++ with OpenCV for high-performance computation of eigenvalues of random matrices.</li>
-        <li><strong>Im(s) vs z Analysis (SymPy):</strong> Uses Python's SymPy library with extended precision to accurately analyze the cubic equation roots.</li>
-    </ol>
-    <p>This hybrid approach combines C++'s performance for data-intensive calculations with SymPy's high-precision symbolic mathematics for accurate root finding.</p>
-</div>
-""", unsafe_allow_html=True)
+            # Step 5: results in image form. Re-bind for downstream save block.
+            images = test_imgs            # what the save block calls "images"
+            noisy_images = noisy_test_images
+            n = n_test
+            self._update_status_ui('status_process', 'Step 5/6: Preparing images...')
+            self._update_progress_ui('bar_process', 'status_process', 5, 6)
+
+            diff = float(np.mean(np.abs(method1_images - method2_images)))
+            print(f"[DEBUG] Mean abs diff Method1 vs Method2: {diff:.6f}")
+
+            # Step 6: Save to folders and encode images
+            self._update_status_ui('status_process', 'Step 6/6: Saving to folders and encoding...')
+            self._update_progress_ui('bar_process', 'status_process', 6, 6)
+
+            # Create output folders in temp with descriptive names
+            temp_folder = get_temp_folder()
+            noise_folder_name = "noisy_laplacian" if noise_type == "laplacian" else "noisy_mixture_gaussian"
+            noisy_folder = temp_folder / noise_folder_name
+
+            # Map method codes to folder names
+            method_names = {
+                "mp": "mp_law",
+                "gen_cov": "gen_cov",
+            }
+            method1_folder = temp_folder / method_names.get(method1, method1)
+            method2_folder = temp_folder / method_names.get(method2, method2)
+
+            noisy_folder.mkdir(exist_ok=True)
+            method1_folder.mkdir(exist_ok=True)
+            method2_folder.mkdir(exist_ok=True)
+
+            # Create noise type label
+            if noise_type == "laplacian":
+                noise_label = f"Laplacian Noise (σ={laplacian_scale})"
+            elif noise_type == "mixture_gaussian":
+                noise_label = "Mixture of Gaussians Noise"
+            else:
+                noise_label = "With Noise"
+
+            results = []
+            for i in range(n):
+                # Create PIL images
+                orig_img = Image.fromarray((images[i] * 255).astype(np.uint8), mode='L')
+                noisy_img = Image.fromarray((noisy_images[i] * 255).astype(np.uint8), mode='L')
+                m1_img = Image.fromarray((np.clip(method1_images[i], 0, 1) * 255).astype(np.uint8), mode='L')
+                m2_img = Image.fromarray((np.clip(method2_images[i], 0, 1) * 255).astype(np.uint8), mode='L')
+
+                # Save to disk first
+                noisy_path = noisy_folder / f"{i:03d}.png"
+                m1_path = method1_folder / f"{i:03d}.png"
+                m2_path = method2_folder / f"{i:03d}.png"
+
+                noisy_img.save(noisy_path)
+                m1_img.save(m1_path)
+                m2_img.save(m2_path)
+
+                print(f"[DEBUG] Image {i:03d} saved:")
+                print(f"  Noisy: {noisy_path}")
+                print(f"  Method1 ({method1}): {m1_path}")
+                print(f"  Method2 ({method2}): {m2_path}")
+
+                # Now load FROM disk and encode to base64 to ensure they're correct
+                def img_to_base64_from_file(filepath):
+                    with open(filepath, 'rb') as f:
+                        return base64.b64encode(f.read()).decode('utf-8')
+
+                # Also encode original for display
+                def img_to_base64(img):
+                    buffer = io.BytesIO()
+                    img.save(buffer, format='PNG')
+                    return base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+                results.append({
+                    "original": img_to_base64(orig_img),
+                    "blurred": img_to_base64_from_file(noisy_path),
+                    "method1": img_to_base64_from_file(m1_path),
+                    "method2": img_to_base64_from_file(m2_path),
+                    "method1_name": method1_name,
+                    "method2_name": method2_name,
+                    "noise_type_label": noise_label
+                })
+
+                if i == 0:
+                    # Verify first image is different between methods
+                    import hashlib
+                    m1_hash = hashlib.md5(open(m1_path, 'rb').read()).hexdigest()
+                    m2_hash = hashlib.md5(open(m2_path, 'rb').read()).hexdigest()
+                    print(f"[DEBUG] First image verification:")
+                    print(f"  Method1 hash: {m1_hash}")
+                    print(f"  Method2 hash: {m2_hash}")
+                    print(f"  Images are DIFFERENT: {m1_hash != m2_hash}")
+
+            # Store results in instance variable for navigation
+            self.processed_results = results
+
+            return {
+                "success": True,
+                "total_images": len(results),
+                "results": results,
+                "processing_info": {
+                    "n": n,
+                    "H": H,
+                    "W": W,
+                    "p": p,
+                    "y": y,
+                    "method1": method1_details,
+                    "method2": method2_details
+                }
+            }
+        except Exception as e:
+            print(f"Error processing images: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
+
+    def get_processed_image(self, index):
+        """Get a specific processed image by index"""
+        try:
+            if hasattr(self, 'processed_results') and index < len(self.processed_results):
+                return self.processed_results[index]
+            return {"error": "Image not found"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def list_folder_images(self, folder_name):
+        """List image filenames in a folder (sorted)."""
+        try:
+            folder_path = get_random_matrix_folder() / folder_name
+            files = sorted(
+                f.name for f in folder_path.iterdir()
+                if f.suffix.lower() in [".png", ".jpg", ".jpeg"]
+            )
+            return {"files": files}
+        except Exception as e:
+            print(f"Error listing folder images: {e}")
+            return {"files": []}
+
+    def list_random_matrix_folders(self):
+        """List all folders in .random_matrix directory"""
+        try:
+            base_folder = get_random_matrix_folder()
+            folders = [f.name for f in base_folder.iterdir() if f.is_dir() and f.name != "temp"]
+            return {"folders": sorted(folders)}
+        except Exception as e:
+            print(f"Error listing folders: {e}")
+            return {"folders": []}
+
+    def get_folder_contents(self, folder_name):
+        """Get contents of a specific folder"""
+        try:
+            folder_path = get_random_matrix_folder() / folder_name
+            files = []
+            for f in sorted(folder_path.iterdir()):
+                if f.suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                    with open(f, 'rb') as img_file:
+                        img_data = base64.b64encode(img_file.read()).decode('utf-8')
+                    files.append({"name": f.name, "data": img_data})
+            return {"files": files}
+        except Exception as e:
+            print(f"Error getting folder contents: {e}")
+            return {"files": []}
+
+
+# --------- HTML / JS UI (desktop) --------- #
+HTML = r"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Matrix Analysis Lab</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.1.min.js"></script>
+  <style>
+    :root {
+      --bg: #0c1224;
+      --panel: #0f172a;
+      --card: #ffffff;
+      --border: #d9e1ef;
+      --accent: #ff6a3d;
+      --accent2: #ff9f55;
+      --text: #0f172a;
+      --muted: #5b6475;
+      --status: #0ea5e9;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 15%, rgba(255,255,255,0.10), transparent 30%), linear-gradient(135deg, #0c1224, #0f172a 50%, #0b1020);
+      color: #e2e8f0;
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+    }
+    header {
+      padding: 18px 24px;
+      background: rgba(12,18,36,0.8);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+    }
+    h1 { margin: 0; font-size: 24px; color: #fff; font-weight: 700; }
+    p { margin: 6px 0 0; color: #cbd5e1; font-size: 14px; }
+    .tabs { display: flex; gap: 8px; padding: 12px 16px 0; flex-wrap: wrap; background: var(--bg); }
+    .tab {
+      padding: 12px 18px;
+      border-radius: 10px 10px 0 0;
+      background: var(--panel);
+      color: #cbd5e1;
+      border: 1px solid #1e293b;
+      border-bottom: none;
+      cursor: pointer;
+      user-select: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      transition: all 0.2s ease;
+      font-weight: 500;
+    }
+    .tab:hover {
+      background: rgba(255,255,255,0.05);
+      color: #e2e8f0;
+    }
+    .tab.active {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-bottom: 1px solid var(--card);
+      box-shadow: 0 -2px 14px rgba(15,23,42,0.25);
+      transform: translateY(1px);
+    }
+    .tab-content { display: none; padding: 0; }
+    .tab-content.active { display: block; }
+    .container { padding: 20px; max-width: 1400px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+    .grid-full { grid-column: 1 / -1; }
+    .card {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 12px rgba(15,23,42,0.15), 0 1px 3px rgba(15,23,42,0.1);
+      padding: 20px;
+      transition: all 0.3s ease;
+      animation: fadeIn 0.5s ease;
+    }
+    .card:hover {
+      box-shadow: 0 8px 20px rgba(15,23,42,0.2), 0 2px 6px rgba(15,23,42,0.15);
+    }
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .controls-panel {
+      position: sticky;
+      top: 90px;
+      height: fit-content;
+    }
+    .plot-area {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin: 24px 0 12px 0;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e2e8f0;
+      position: relative;
+    }
+    .section-title:first-of-type {
+      margin-top: 16px;
+    }
+    h3 {
+      margin: 0 0 16px;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    label { display: block; font-size: 13px; margin: 10px 0 5px; color: #475569; font-weight: 500; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255,106,61,0.1);
+    }
+    button {
+      margin-top: 16px;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(255,106,61,0.3);
+      letter-spacing: 0.3px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255,106,61,0.4);
+    }
+    button:active {
+      transform: translateY(0px);
+    }
+    .plot-box {
+      margin-top: 0;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 0;
+      border: 2px dashed #cbd5e1;
+      min-height: 400px;
+      height: 450px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+      color: #94a3b8;
+      font-size: 14px;
+      overflow: hidden;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    .plot-box.empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 500;
+    }
+    .plot-box.has-plot {
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      padding: 0;
+    }
+    .plot-box:hover {
+      border-color: #94a3b8;
+      background: #ffffff;
+    }
+    .plot-box > div {
+      width: 100%;
+      height: 100%;
+    }
+    .plot-box .main-svg {
+      border-radius: 10px;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 0;
+    }
+    .metric {
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #a5b4fc;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      border: 1px solid #334155;
+      font-weight: 600;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .metric:hover {
+      background: linear-gradient(135deg, #1e293b, #334155);
+      transform: translateY(-1px);
+      transition: all 0.2s ease;
+    }
+    .small {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 12px;
+      line-height: 1.6;
+      padding: 10px;
+      background: #f8fafc;
+      border-radius: 6px;
+      border-left: 3px solid #94a3b8;
+    }
+    .status { color: var(--status); margin-top: 10px; font-size: 13px; min-height: 18px; font-weight: 500; }
+    .explain {
+      color: #475569;
+      margin-top: 10px;
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      background: #f1f5f9;
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+    .bar-wrap {
+      margin-top: 8px;
+      background: #e2e8f0;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      height: 12px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #22d3ee, #38bdf8);
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(34,211,238,0.5);
+    }
+    .equation-panel {
+      margin-bottom: 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+    .equation-panel summary {
+      padding: 12px 16px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 600;
+      font-size: 14px;
+      color: #1e293b;
+      background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+      transition: background 0.2s ease;
+    }
+    .equation-panel summary:hover {
+      background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+    }
+    .equation-content {
+      padding: 16px;
+      border-top: 1px solid #cbd5e1;
+      background: white;
+    }
+    .equation-content h4 {
+      margin: 12px 0 8px 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      border-bottom: none;
+      padding-bottom: 4px;
+    }
+    .equation-content h4:first-child {
+      margin-top: 0;
+    }
+    .equation-content code {
+      display: block;
+      padding: 8px 12px;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #0f172a;
+      margin: 8px 0;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .equation-content p {
+      margin: 6px 0;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr; }
+      .grid-2col { grid-template-columns: 1fr; }
+      .controls-panel { position: static; }
+      .container { padding: 12px; }
+    }
+    @media (max-width: 768px) {
+      h1 { font-size: 20px; }
+      .tabs { padding: 8px 12px 0; }
+      .tab { padding: 10px 14px; font-size: 13px; }
+      .card { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Matrix Analysis Lab</h1>
+    <p>Desktop webview UI (HTML/CSS/JS) powered by pure Python computations.</p>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="tab-im">Im(s) vs z</div>
+    <div class="tab" data-tab="tab-beta">Roots vs beta</div>
+    <div class="tab" data-tab="tab-eig">Eigenvalue distribution</div>
+    <div class="tab" data-tab="tab-download">📁 Folder Management</div>
+    <div class="tab" data-tab="tab-process">🖼️ Image Processing</div>
+  </div>
+
+  <div id="tab-im" class="tab-content active">
+    <div class="container">
+      <div class="grid">
+        <!-- Controls Panel -->
+        <div class="card controls-panel">
+          <h3>⚙️ Parameters</h3>
+          <label>Beta (β)</label>
+          <input id="beta_z" type="number" value="0.5" step="0.05" min="0" max="1">
+
+          <label>Y ratio</label>
+          <input id="y_z" type="number" value="1.0" step="0.1" min="0.01">
+
+          <label>Spike value (a)</label>
+          <input id="a_z" type="number" value="2.0" step="0.1" min="0.01">
+
+          <div class="section-title">Z Range</div>
+          <label>Minimum</label>
+          <input id="zmin_z" type="number" value="0.01" step="0.01">
+
+          <label>Maximum</label>
+          <input id="zmax_z" type="number" value="10" step="0.5">
+
+          <div class="section-title">Computation</div>
+          <label>Grid points</label>
+          <input id="points_z" type="number" value="400" step="50" min="50" max="2000">
+
+          <button onclick="runIm()">🚀 Compute Im(s) vs z</button>
+          <div class="small">Solves cubic equation on logarithmic z grid.</div>
+        </div>
+
+        <!-- Plot Area -->
+        <div class="plot-area">
+          <div class="card">
+            <details class="equation-panel">
+              <summary>📐 Cubic Equation & Method</summary>
+              <div class="equation-content">
+                <h4>Cubic Polynomial Equation:</h4>
+                <code>(z·a)·s³ + [z·(a+1) + a·(1-y)]·s² + [z + (a+1) - y - y·β·(a-1)]·s + 1 = 0</code>
+
+                <h4>Stieltjes Transform:</h4>
+                <p>The roots <code>s</code> represent the Stieltjes transform of the eigenvalue distribution:</p>
+                <code>s(z) = ∫ (1/(λ - z)) dμ(λ)</code>
+
+                <h4>Im(s) Interpretation:</h4>
+                <p>• <code>Im(s)</code> relates to the density of eigenvalues</p>
+                <p>• <code>Re(s)</code> relates to the principal value</p>
+                <p>• Complex roots indicate overlapping eigenvalue support</p>
+                <p>• Real roots indicate separated eigenvalue bands</p>
+              </div>
+            </details>
+            <div class="plot-box empty" id="slot1">Click "Compute" to generate plot</div>
+            <div class="status" id="status1"></div>
+            <div class="bar-wrap"><div class="bar" id="bar1"></div></div>
+            <div class="explain" id="explain1"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-beta" class="tab-content">
+    <div class="container">
+      <div class="grid">
+        <!-- Controls Panel -->
+        <div class="card controls-panel">
+          <h3>⚙️ Parameters</h3>
+          <label>Z position</label>
+          <input id="z_beta" type="number" value="1.0" step="0.1">
+
+          <label>Y ratio</label>
+          <input id="y_beta" type="number" value="1.0" step="0.1">
+
+          <label>Spike value (a)</label>
+          <input id="a_beta" type="number" value="2.0" step="0.1">
+
+          <div class="section-title">Beta Range</div>
+          <label>Minimum</label>
+          <input id="beta_min" type="number" value="0.0" step="0.05" min="0" max="1">
+
+          <label>Maximum</label>
+          <input id="beta_max" type="number" value="1.0" step="0.05" min="0" max="1">
+
+          <div class="section-title">Computation</div>
+          <label>Grid points</label>
+          <input id="points_beta" type="number" value="400" step="50" min="50" max="2000">
+
+          <button onclick="runBeta()">🚀 Generate Root Plots</button>
+          <div class="small">Tracks root evolution across beta values.</div>
+
+          <div class="status" id="status2"></div>
+          <div class="bar-wrap"><div class="bar" id="bar2"></div></div>
+        </div>
+
+        <!-- Plot Area -->
+        <div class="plot-area">
+          <div class="card">
+            <details class="equation-panel">
+              <summary>📐 Cubic Equation & Discriminant</summary>
+              <div class="equation-content">
+                <h4>Same Cubic Equation:</h4>
+                <code>(z·a)·s³ + [z·(a+1) + a·(1-y)]·s² + [z + (a+1) - y - y·β·(a-1)]·s + 1 = 0</code>
+
+                <h4>Variable Parameter: β (beta)</h4>
+                <p>This tab shows how the roots change as β varies (while z, a, y are fixed)</p>
+
+                <h4>Discriminant:</h4>
+                <code>Δ = 18abc·d - 27a²d² + b²c² - 2b³d - 9ac³</code>
+                <p>• Discriminant crosses zero at transitions between 3 real roots and 1 real + 2 complex roots</p>
+                <p>• Red dashed lines mark discriminant zero crossings</p>
+              </div>
+            </details>
+          </div>
+          <div class="grid-2col">
+            <div class="card">
+              <h3>📊 Imaginary Parts</h3>
+              <div class="plot-box empty" id="slot2">Click "Generate" to create plots</div>
+            </div>
+            <div class="card">
+              <h3>📈 Real Parts</h3>
+              <div class="plot-box empty" id="slot3">Waiting for computation...</div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>🔍 Cubic Discriminant</h3>
+            <div class="plot-box empty" id="slot4">Waiting for computation...</div>
+            <div class="explain" id="explain2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-eig" class="tab-content">
+    <div class="container">
+      <div class="grid">
+        <!-- Controls Panel -->
+        <div class="card controls-panel">
+          <h3>⚙️ Parameters</h3>
+          <label>Beta (β)</label>
+          <input id="beta_eig" type="number" value="0.5" step="0.05" min="0" max="1">
+
+          <label>Spike value (a)</label>
+          <input id="a_eig" type="number" value="2.0" step="0.1">
+
+          <div class="section-title">Matrix Dimensions</div>
+          <label>Samples (n)</label>
+          <input id="n_eig" type="number" value="400" step="50" min="50" max="4000">
+
+          <label>Rows (p)</label>
+          <input id="p_eig" type="number" value="200" step="20" min="50" max="4000">
+
+          <div class="section-title">Random Seed</div>
+          <label>Seed</label>
+          <input id="seed_eig" type="number" value="42" step="1" min="1">
+
+          <button onclick="runEigen()">🚀 Generate Distribution</button>
+          <div class="small">Simulates random matrix eigenvalues with mixed diagonal entries.</div>
+
+          <div class="section-title">Statistics</div>
+          <div id="eig_stats" class="metrics"></div>
+
+          <div class="status" id="status4"></div>
+          <div class="bar-wrap"><div class="bar" id="bar4"></div></div>
+        </div>
+
+        <!-- Plot Area -->
+        <div class="plot-area">
+          <div class="card">
+            <details class="equation-panel">
+              <summary>📐 Matrix Construction & Theory</summary>
+              <div class="equation-content">
+                <h4>Matrix Model:</h4>
+                <code>B_n = S_n × T_n</code>
+
+                <h4>Sample Covariance Matrix:</h4>
+                <code>S_n = (1/n) × X × X^T</code>
+                <p>Where X is a (p × n) random matrix with Gaussian entries</p>
+
+                <h4>Spike Matrix:</h4>
+                <code>T_n = diag([a, a, ..., a, 1, 1, ..., 1])</code>
+                <p>• First β×p entries are <code>a</code> (spike values)</p>
+                <p>• Remaining (1-β)×p entries are <code>1</code></p>
+
+                <h4>Parameters:</h4>
+                <p>• <code>y = p/n</code>: Aspect ratio (calculated from image dimensions)</p>
+                <p>• <code>a</code>: Spike value (default: 2.0)</p>
+                <p>• <code>β</code>: Fraction of spiked eigenvalues</p>
+                <p>• <code>n</code>: Number of samples (images)</p>
+                <p>• <code>p</code>: Dimension (image pixels)</p>
+              </div>
+            </details>
+            <h3>📊 Eigenvalue Distribution</h3>
+            <div class="plot-box empty" id="slot6">Click "Generate" to create distribution</div>
+            <div class="explain" id="explain4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-download" class="tab-content">
+    <div class="container">
+      <!-- Upload Local Folder -->
+      <div class="card controls-panel" style="max-width: 600px; margin: 0 auto;">
+        <h3>📁 Upload Local Folder</h3>
+
+        <div class="section-title">Select Folder to Upload</div>
+        <label>Choose Folder</label>
+        <input id="local_folder" type="file" webkitdirectory directory multiple style="display:none;">
+        <button onclick="document.getElementById('local_folder').click()" style="margin-top: 8px; width: 100%;">📂 Browse Folder</button>
+        <div class="small" id="folder_count" style="margin-top: 8px; padding: 8px; background: #f1f5f9; border-radius: 4px; min-height: 40px;">No folder selected</div>
+
+        <button onclick="importLocalFolder()" style="margin-top: 12px;">📥 Upload Folder</button>
+        <div class="small" style="margin-top: 8px; color: #64748b;">Folder will be saved with its original name in .random_matrix</div>
+
+        <div class="status" id="status_upload"></div>
+        <div class="bar-wrap"><div class="bar" id="bar_upload"></div></div>
+      </div>
+
+      <!-- Browse Existing Folders Section -->
+      <div class="card" style="margin-top: 20px;">
+        <h3>📂 Browse Existing Folders</h3>
+        <div style="display: grid; grid-template-columns: 1fr 3fr; gap: 20px; margin-top: 16px;">
+          <div>
+            <label>Available Folders</label>
+            <select id="folder_list" size="8" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+              <option>Loading folders...</option>
+            </select>
+            <button onclick="refreshFolders()" style="margin-top: 8px; width: 100%;">🔄 Refresh</button>
+            <button onclick="viewFolder()" style="margin-top: 8px; width: 100%;">👁️ View Contents</button>
+          </div>
+          <div>
+            <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 14px; color: #475569;">Folder Contents</h4>
+            <div id="folder_contents" style="min-height: 300px; max-height: 400px; overflow-y: auto; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #cbd5e1;">
+              <p style="text-align: center; color: #94a3b8; padding: 40px;">Select a folder to view its contents</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-process" class="tab-content">
+    <div class="container">
+      <div class="grid">
+        <!-- Controls Panel -->
+        <div class="card controls-panel">
+          <h3>🖼️ Image Processing</h3>
+
+          <div class="section-title">Source Folder</div>
+          <label>Select Folder</label>
+          <select id="process_folder" onchange="refreshImageList()" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+            <option>Loading folders...</option>
+          </select>
+
+          <div class="section-title">Image Counts</div>
+          <div id="folder_image_count" class="small" style="color:#64748b; margin-bottom:6px;">Folder: – images</div>
+          <label>Training images (n) — build covariance matrix</label>
+          <input id="train_count" type="number" value="20" min="2" step="1">
+          <label style="margin-top:8px;">Test images (to denoise)</label>
+          <input id="test_count" type="number" value="5" min="1" step="1">
+          <label style="margin-top:8px;">Batch size (test images per denoise call)</label>
+          <input id="batch_size" type="number" value="1" min="1" step="1">
+          <div class="small" style="color:#64748b; margin-top:4px;">
+            Train = first <em>n</em> files in folder; test = next files after that.
+          </div>
+
+          <div class="section-title">Method 1</div>
+          <label>Denoising Method</label>
+          <select id="method1" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+            <option value="mp">M-P Law (rmt-denoise)</option>
+            <option value="gen_cov">Gen. Covariance (rmt-denoise)</option>
+          </select>
+
+          <div class="section-title">Method 2</div>
+          <label>Denoising Method</label>
+          <select id="method2" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+            <option value="mp">M-P Law (rmt-denoise)</option>
+            <option value="gen_cov" selected>Gen. Covariance (rmt-denoise)</option>
+          </select>
+
+          <div class="small" style="color: #64748b; margin-top: 6px;">
+            Both methods use rmt-denoise with centring (X̃ = X − X̄), T(a,β) re-scaling, and color-resize applied.
+          </div>
+
+          <div class="section-title">Noise Settings</div>
+          <label>Noise Type</label>
+          <select id="noise_type" onchange="toggleNoiseParams()" style="width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;">
+            <option value="laplacian">Laplacian (heavy-tailed)</option>
+            <option value="mixture_gaussian">Mixture of Gaussians</option>
+          </select>
+
+          <!-- Laplacian Noise Parameters -->
+          <div id="laplacian_params" style="margin-top: 12px;">
+            <label>Laplacian Scale (σ)</label>
+            <input id="laplacian_scale" type="number" value="0.1" step="0.01" min="0.01" max="1.0">
+            <div class="small" style="color: #64748b; margin-top: 4px;">Heavy-tailed noise (default: 0.1)</div>
+          </div>
+
+          <!-- Mixture of Gaussians Parameters -->
+          <div id="mog_params" style="margin-top: 12px; display: none;">
+            <div class="small" style="color: #64748b; margin-bottom: 8px;">Configure 3 Gaussian components (weights auto-normalized)</div>
+
+            <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 8px;">
+              <div style="font-weight: 600; color: #475569; margin-bottom: 8px;">Component 1</div>
+              <label style="font-size: 12px;">Weight</label>
+              <input id="mog_weight1" type="number" value="0.6" step="0.1" min="0.01" max="1.0" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Mean (μ)</label>
+              <input id="mog_mean1" type="number" value="0.0" step="0.01" min="-0.5" max="0.5" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Sigma (σ)</label>
+              <input id="mog_sigma1" type="number" value="0.1" step="0.01" min="0.001" max="1.0">
+            </div>
+
+            <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 8px;">
+              <div style="font-weight: 600; color: #475569; margin-bottom: 8px;">Component 2</div>
+              <label style="font-size: 12px;">Weight</label>
+              <input id="mog_weight2" type="number" value="0.3" step="0.1" min="0.01" max="1.0" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Mean (μ)</label>
+              <input id="mog_mean2" type="number" value="0.0" step="0.01" min="-0.5" max="0.5" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Sigma (σ)</label>
+              <input id="mog_sigma2" type="number" value="0.05" step="0.01" min="0.001" max="1.0">
+            </div>
+
+            <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 8px;">
+              <div style="font-weight: 600; color: #475569; margin-bottom: 8px;">Component 3 (Heavy tail)</div>
+              <label style="font-size: 12px;">Weight</label>
+              <input id="mog_weight3" type="number" value="0.1" step="0.1" min="0.01" max="1.0" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Mean (μ)</label>
+              <input id="mog_mean3" type="number" value="0.0" step="0.01" min="-0.5" max="0.5" style="margin-bottom: 6px;">
+              <label style="font-size: 12px;">Sigma (σ)</label>
+              <input id="mog_sigma3" type="number" value="0.3" step="0.01" min="0.001" max="1.0">
+            </div>
+          </div>
+
+          <label>Random Seed (for reproducibility)</label>
+          <input id="random_seed" type="number" value="" placeholder="Leave empty for random" step="1" min="0">
+          <div class="small" style="color: #64748b; margin-top: 4px;">Set a seed number (e.g., 42) to get identical noise each time. Leave empty for random noise.</div>
+
+          <button onclick="processImages()">🚀 Process Images</button>
+          <div class="small">y parameter auto-calculated from image dimensions</div>
+
+          <div class="status" id="status_process"></div>
+          <div class="bar-wrap"><div class="bar" id="bar_process"></div></div>
+
+          <div class="section-title" style="margin-top: 20px;">Processing Details</div>
+          <div class="small" id="processing_info" style="background: #f1f5f9; padding: 10px; min-height: 40px;">
+            Processing info will appear here...
+          </div>
+          <div class="small" id="method1_info" style="background: #f1f5f9; padding: 8px; margin-top: 6px; min-height: 30px; font-size: 11px;">
+            Method 1 details...
+          </div>
+          <div class="small" id="method2_info" style="background: #f1f5f9; padding: 8px; margin-top: 6px; min-height: 30px; font-size: 11px;">
+            Method 2 details...
+          </div>
+        </div>
+
+        <!-- Display Area with 4-panel grid -->
+        <div class="plot-area">
+          <div class="card">
+            <h3>📊 Comparison Results</h3>
+            <div class="grid-2col" style="margin-top: 0;">
+              <div style="text-align: center;">
+                <h4 id="result1_label" style="margin: 8px 0; font-size: 13px; color: #475569;">Method 1 Result</h4>
+                <div id="result1" style="width: 100%; height: 300px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                  Click "Process Images" to start
+                </div>
+              </div>
+              <div style="text-align: center;">
+                <h4 id="result2_label" style="margin: 8px 0; font-size: 13px; color: #475569;">Method 2 Result</h4>
+                <div id="result2" style="width: 100%; height: 300px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                  Click "Process Images" to start
+                </div>
+              </div>
+              <div style="text-align: center;">
+                <h4 style="margin: 8px 0; font-size: 13px; color: #475569;">Original Image</h4>
+                <div id="result_original" style="width: 100%; height: 300px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                  Waiting...
+                </div>
+              </div>
+              <div style="text-align: center;">
+                <h4 id="result_blur_label" style="margin: 8px 0; font-size: 13px; color: #475569;">With Noise</h4>
+                <div id="result_blur" style="width: 100%; height: 300px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                  Waiting...
+                </div>
+              </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px; display: flex; align-items: center; justify-content: center; gap: 16px;">
+              <button onclick="prevImage()" style="width: 60px; padding: 10px; font-size: 18px;">&lt;</button>
+              <div style="font-size: 20px; font-weight: 600; color: #0f172a; font-family: 'Courier New', monospace;" id="image_counter">000</div>
+              <button onclick="nextImage()" style="width: 60px; padding: 10px; font-size: 18px;">&gt;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const contents = document.querySelectorAll('.tab-content');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        contents.forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    function setHTML(slot, html) { document.getElementById(slot).innerHTML = html || ''; }
+    // Track resize handlers to avoid duplicates
+    const resizeHandlers = new Map();
+
+    function plotFromFigure(target, fig) {
+      const el = document.getElementById(target);
+      if (!el) return;
+
+      // Remove empty class and add has-plot class
+      el.classList.remove('empty');
+      el.classList.add('has-plot');
+      el.innerHTML = '';
+
+      const layout = fig.layout || {};
+      layout.autosize = true;
+      layout.height = 450;
+      layout.margin = layout.margin || {};
+      Object.assign(layout.margin, { l: 60, r: 40, t: 60, b: 50 });
+
+      const config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d']
+      };
+
+      Plotly.newPlot(target, fig.data, layout, config);
+
+      // Remove old resize handler if exists
+      if (resizeHandlers.has(target)) {
+        window.removeEventListener('resize', resizeHandlers.get(target));
+      }
+
+      // Create new resize handler
+      const resizeHandler = () => {
+        const plotDiv = document.getElementById(target);
+        if (plotDiv && plotDiv.data) {
+          Plotly.Plots.resize(target);
+        }
+      };
+
+      resizeHandlers.set(target, resizeHandler);
+      window.addEventListener('resize', resizeHandler);
+    }
+    function setProgress(barId, textId, progressList) {
+      const bar = document.getElementById(barId);
+      const textEl = document.getElementById(textId);
+      if (!bar || !textEl) return;
+      const vals = (progressList || []).map(p => {
+        if (typeof p === 'object' && p !== null && ('step' in p) && ('total' in p)) {
+          return { pct: Math.round((p.step / p.total) * 100), label: `${p.step}/${p.total} (${Math.round((p.step/p.total)*100)}%)` };
+        }
+        return { pct: 0, label: '' };
+      });
+      const last = vals.length ? vals[vals.length - 1] : { pct: 0, label: '' };
+      bar.style.width = Math.min(100, last.pct || 0) + '%';
+      textEl.innerHTML = last.label || '';
+    }
+    function apiReady() {
+      return window.pywebview && window.pywebview.api;
+    }
+    function ensureApi(slotStatus) {
+      if (!apiReady()) {
+        setHTML(slotStatus, '<span style="color:red;">API not ready yet. Please wait a second.</span>');
+        return false;
+      }
+      return true;
+    }
+    async function runIm() {
+      setHTML('slot1', 'Running...');
+      setHTML('status1', '');
+      setHTML('explain1', '');
+      setProgress('bar1', 'status1', []);
+      if (!ensureApi('status1')) return;
+      try {
+        const payload = {
+          beta: Number(document.getElementById('beta_z').value),
+          y: Number(document.getElementById('y_z').value),
+          a: Number(document.getElementById('a_z').value),
+          z_min: Number(document.getElementById('zmin_z').value),
+          z_max: Number(document.getElementById('zmax_z').value),
+          points: Number(document.getElementById('points_z').value)
+        };
+        const res = await window.pywebview.api.im_vs_z(payload);
+
+        // Plot using raw data
+        const el = document.getElementById('slot1');
+        el.classList.remove('empty');
+        el.classList.add('has-plot');
+        el.innerHTML = '';
+
+        const {z_values, ims_values, real_values} = res.data;
+        const {a, y, beta} = res.params;
+
+        // Create traces for Im(s)
+        const colors = ["#ef553b", "#2b8aef", "#1fbf68"];
+        const traces = [];
+        for (let i = 0; i < 3; i++) {
+          traces.push({
+            x: z_values,
+            y: ims_values.map(row => row[i]),
+            mode: 'lines',
+            name: `Im s${i+1}`,
+            line: {color: colors[i], width: 2}
+          });
+        }
+
+        const layout = {
+          title: `Im(s) vs z (beta=${beta.toFixed(3)}, y=${y.toFixed(3)}, a=${a.toFixed(3)})`,
+          xaxis: {
+            title: 'z',
+            autorange: true
+          },
+          yaxis: {
+            title: 'Im(s)',
+            autorange: true
+          },
+          hovermode: 'x unified',
+          height: 450,
+          margin: {l: 60, r: 40, t: 60, b: 50},
+          plot_bgcolor: 'white',
+          paper_bgcolor: 'white'
+        };
+
+        const config = {
+          responsive: true,
+          displayModeBar: true,
+          displaylogo: false,
+          modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        };
+
+        Plotly.newPlot('slot1', traces, layout, config);
+
+        setProgress('bar1', 'status1', res.progress || []);
+        setHTML('explain1', res.explanation || '');
+      } catch (err) {
+        setHTML('slot1', '<span style="color:red;">'+err+'</span>');
+      }
+    }
+    async function runBeta() {
+      setHTML('slot2', 'Running...');
+      setHTML('status2', '');
+      setHTML('explain2', '');
+      setProgress('bar2', 'status2', []);
+      if (!ensureApi('status2')) return;
+      try {
+        const payload = {
+          z: Number(document.getElementById('z_beta').value),
+          y: Number(document.getElementById('y_beta').value),
+          a: Number(document.getElementById('a_beta').value),
+          beta_min: Number(document.getElementById('beta_min').value),
+          beta_max: Number(document.getElementById('beta_max').value),
+          points: Number(document.getElementById('points_beta').value)
+        };
+        const res = await window.pywebview.api.roots_vs_beta(payload);
+
+        const {beta_values, ims_values, real_values, discriminants} = res.data;
+        const {z, y, a} = res.params;
+        const colors = ["#ef553b", "#2b8aef", "#1fbf68"];
+
+        // Plot Im(s) vs beta
+        const el2 = document.getElementById('slot2');
+        el2.classList.remove('empty');
+        el2.classList.add('has-plot');
+        el2.innerHTML = '';
+
+        const imTraces = [];
+        for (let i = 0; i < 3; i++) {
+          imTraces.push({
+            x: beta_values,
+            y: ims_values.map(row => row[i]),
+            mode: 'lines',
+            name: `Im s${i+1}`,
+            line: {color: colors[i], width: 2}
+          });
+        }
+
+        Plotly.newPlot('slot2', imTraces, {
+          title: `Im(s) vs beta (z=${z.toFixed(3)}, y=${y.toFixed(3)}, a=${a.toFixed(3)})`,
+          xaxis: {title: 'beta', autorange: true},
+          yaxis: {title: 'Im(s)', autorange: true},
+          hovermode: 'x unified',
+          height: 450,
+          margin: {l: 60, r: 40, t: 60, b: 50},
+          plot_bgcolor: 'white',
+          paper_bgcolor: 'white'
+        }, {responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d']});
+
+        // Plot Re(s) vs beta
+        const el3 = document.getElementById('slot3');
+        el3.classList.remove('empty');
+        el3.classList.add('has-plot');
+        el3.innerHTML = '';
+
+        const reTraces = [];
+        for (let i = 0; i < 3; i++) {
+          reTraces.push({
+            x: beta_values,
+            y: real_values.map(row => row[i]),
+            mode: 'lines',
+            name: `Re s${i+1}`,
+            line: {color: colors[i], width: 2}
+          });
+        }
+
+        Plotly.newPlot('slot3', reTraces, {
+          title: `Re(s) vs beta (z=${z.toFixed(3)}, y=${y.toFixed(3)}, a=${a.toFixed(3)})`,
+          xaxis: {title: 'beta', autorange: true},
+          yaxis: {title: 'Re(s)', autorange: true},
+          hovermode: 'x unified',
+          height: 450,
+          margin: {l: 60, r: 40, t: 60, b: 50},
+          plot_bgcolor: 'white',
+          paper_bgcolor: 'white'
+        }, {responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d']});
+
+        // Plot discriminant
+        const el4 = document.getElementById('slot4');
+        el4.classList.remove('empty');
+        el4.classList.add('has-plot');
+        el4.innerHTML = '';
+
+        Plotly.newPlot('slot4', [{
+          x: beta_values,
+          y: discriminants,
+          mode: 'lines',
+          name: 'Cubic Discriminant',
+          line: {color: 'black', width: 2}
+        }], {
+          title: `Discriminant vs beta (z=${z.toFixed(3)}, y=${y.toFixed(3)}, a=${a.toFixed(3)})`,
+          xaxis: {title: 'beta', autorange: true},
+          yaxis: {title: 'Discriminant', autorange: true},
+          hovermode: 'x unified',
+          height: 450,
+          margin: {l: 60, r: 40, t: 60, b: 50},
+          plot_bgcolor: 'white',
+          paper_bgcolor: 'white'
+        }, {responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d']});
+
+        setProgress('bar2', 'status2', res.progress || []);
+        setHTML('explain2', res.explanation || '');
+      } catch (err) {
+        setHTML('slot2', '<span style="color:red;">'+err+'</span>');
+      }
+    }
+    async function runEigen() {
+      setHTML('slot6', 'Running...');
+      setHTML('status4', '');
+      setHTML('explain4', '');
+      setProgress('bar4', 'status4', []);
+      if (!ensureApi('status4')) return;
+      try {
+        const payload = {
+          beta: Number(document.getElementById('beta_eig').value),
+          a: Number(document.getElementById('a_eig').value),
+          n: Number(document.getElementById('n_eig').value),
+          p: Number(document.getElementById('p_eig').value),
+          seed: Number(document.getElementById('seed_eig').value)
+        };
+        const res = await window.pywebview.api.eigen_distribution(payload);
+
+        const {eigenvalues, kde_x, kde_y} = res.data;
+
+        // Plot eigenvalue distribution
+        const el6 = document.getElementById('slot6');
+        el6.classList.remove('empty');
+        el6.classList.add('has-plot');
+        el6.innerHTML = '';
+
+        const traces = [
+          {
+            x: eigenvalues,
+            type: 'histogram',
+            histnorm: 'probability density',
+            name: 'Histogram',
+            marker: {color: '#4C7EF3', opacity: 0.65}
+          },
+          {
+            x: kde_x,
+            y: kde_y,
+            mode: 'lines',
+            name: 'KDE',
+            line: {color: '#FF8042', width: 3}
+          }
+        ];
+
+        Plotly.newPlot('slot6', traces, {
+          title: `Eigenvalue distribution (y=${payload.p / payload.n}, beta=${payload.beta}, a=${payload.a})`,
+          xaxis: {title: 'Eigenvalue', autorange: true},
+          yaxis: {title: 'Density', autorange: true},
+          hovermode: 'closest',
+          height: 450,
+          margin: {l: 60, r: 40, t: 60, b: 50},
+          plot_bgcolor: 'white',
+          paper_bgcolor: 'white'
+        }, {responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['lasso2d', 'select2d']});
+
+        document.getElementById('eig_stats').innerHTML = `
+          <div class="metric">min: ${res.stats.min.toFixed(4)}</div>
+          <div class="metric">max: ${res.stats.max.toFixed(4)}</div>
+          <div class="metric">mean: ${res.stats.mean.toFixed(4)}</div>
+          <div class="metric">std: ${res.stats.std.toFixed(4)}</div>
+        `;
+        setProgress('bar4', 'status4', res.progress || []);
+        setHTML('explain4', res.explanation || '');
+      } catch (err) {
+        setHTML('slot6', '<span style="color:red;">'+err+'</span>');
+      }
+    }
+
+    // Image Download & Management functions
+    let currentImageIndex = 0;
+    let totalImages = 0;
+    let processedResults = [];
+
+    document.getElementById('local_folder').addEventListener('change', function(e) {
+      const files = e.target.files;
+      if (files.length > 0) {
+        // Get folder name from first file's path
+        const path = files[0].webkitRelativePath || files[0].name;
+        const folderName = path.split('/')[0];
+        const imageFiles = Array.from(files).filter(f => /\.(png|jpg|jpeg|gif|bmp)$/i.test(f.name));
+        document.getElementById('folder_count').innerHTML = `Folder: ${folderName} (${imageFiles.length} images)`;
+      } else {
+        document.getElementById('folder_count').innerHTML = 'No folder selected';
+      }
+    });
+
+    async function refreshImageList() {
+      if (!apiReady()) { setTimeout(refreshImageList, 500); return; }
+      const folder = document.getElementById('process_folder').value;
+      const info = document.getElementById('folder_image_count');
+      if (!folder || folder === 'Loading folders...' || folder === 'No folders found') {
+        if (info) info.textContent = 'Folder: – images';
+        return;
+      }
+      try {
+        const res = await window.pywebview.api.list_folder_images(folder);
+        const n = (res.files || []).length;
+        if (info) info.textContent = `Folder "${folder}": ${n} images available`;
+      } catch (err) { console.error('list_folder_images failed', err); }
+    }
+
+    function toggleNoiseParams() {
+      const noiseType = document.getElementById('noise_type').value;
+      document.getElementById('laplacian_params').style.display = noiseType === 'laplacian' ? 'block' : 'none';
+      document.getElementById('mog_params').style.display = noiseType === 'mixture_gaussian' ? 'block' : 'none';
+    }
+
+    async function downloadImages() {
+      if (!ensureApi('status_download')) return;
+      try {
+        const url = document.getElementById('download_url').value;
+        if (!url) {
+          setHTML('status_download', '<span style="color:orange;">Please enter a URL</span>');
+          return;
+        }
+
+        const payload = {
+          url: url,
+          count: Number(document.getElementById('download_count').value),
+          scale: Number(document.getElementById('download_scale').value),
+          folder: 'downloaded'
+        };
+
+        setHTML('status_download', 'Downloading images...');
+        document.getElementById('bar_download').style.width = '50%';
+
+        const res = await window.pywebview.api.download_images_playwright(payload);
+
+        if (res.success) {
+          setHTML('status_download', `<span style="color:green;">✓ Downloaded ${res.count} images to "${res.folder}"</span>`);
+          document.getElementById('bar_download').style.width = '100%';
+          refreshFolders();
+        } else {
+          setHTML('status_download', `<span style="color:red;">Error: ${res.error}</span>`);
+          document.getElementById('bar_download').style.width = '0%';
+        }
+      } catch (err) {
+        setHTML('status_download', '<span style="color:red;">'+err+'</span>');
+        document.getElementById('bar_download').style.width = '0%';
+      }
+    }
+
+    async function importLocalFolder() {
+      if (!ensureApi('status_upload')) return;
+      const files = document.getElementById('local_folder').files;
+      if (files.length === 0) {
+        setHTML('status_upload', '<span style="color:orange;">No folder selected</span>');
+        return;
+      }
+
+      try {
+        // Get folder name from first file's path
+        const path = files[0].webkitRelativePath || files[0].name;
+        const sourceFolderName = path.split('/')[0];
+
+        // Filter image files only
+        const imageFiles = Array.from(files).filter(f => /\.(png|jpg|jpeg|gif|bmp)$/i.test(f.name));
+
+        if (imageFiles.length === 0) {
+          setHTML('status_upload', '<span style="color:orange;">No image files found in folder</span>');
+          return;
+        }
+
+        const fileData = [];
+        for (let i = 0; i < imageFiles.length; i++) {
+          const file = imageFiles[i];
+          const reader = new FileReader();
+          const base64 = await new Promise((resolve) => {
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.readAsDataURL(file);
+          });
+
+          // Get relative path within the selected folder
+          const fullPath = file.webkitRelativePath || file.name;
+          const pathParts = fullPath.split('/');
+          // Remove the first part (folder name) to get relative path
+          const relativePath = pathParts.slice(1).join('/');
+
+          fileData.push({
+            name: file.name,
+            path: relativePath,  // Preserve relative path
+            data: base64
+          });
+
+          // Update progress bar
+          const progress = Math.round(((i + 1) / imageFiles.length) * 100);
+          document.getElementById('bar_upload').style.width = progress + '%';
+          setHTML('status_upload', `Reading files: ${i + 1}/${imageFiles.length} (${progress}%)`);
+        }
+
+        const payload = {
+          files: fileData,
+          folder: sourceFolderName  // Use original folder name
+        };
+
+        setHTML('status_upload', `Uploading ${imageFiles.length} images...`);
+        const res = await window.pywebview.api.import_local_folder(payload);
+
+        if (res && res.success) {
+          setHTML('status_upload', `<span style="color:green;">✓ Imported ${res.count} images to folder "${res.folder}"</span>`);
+          document.getElementById('folder_count').innerHTML = 'No folder selected';
+          document.getElementById('local_folder').value = '';
+          document.getElementById('bar_upload').style.width = '100%';
+          refreshFolders();
+        } else {
+          const errorMsg = (res && res.error) ? res.error : 'Unknown error';
+          setHTML('status_upload', `<span style="color:red;">Error: ${errorMsg}</span>`);
+          document.getElementById('bar_upload').style.width = '0%';
+        }
+      } catch (err) {
+        console.error('Upload error:', err);
+        setHTML('status_upload', '<span style="color:red;">Error: '+err.message+'</span>');
+        document.getElementById('bar_upload').style.width = '0%';
+      }
+    }
+
+    async function refreshFolders() {
+      // Wait for API to be ready
+      if (!apiReady()) {
+        console.log('API not ready, retrying in 500ms...');
+        setTimeout(refreshFolders, 500);
+        return;
+      }
+
+      try {
+        const res = await window.pywebview.api.list_random_matrix_folders();
+        const folderList = document.getElementById('folder_list');
+        const processFolderList = document.getElementById('process_folder');
+
+        if (!folderList || !processFolderList) {
+          console.log('DOM elements not ready, retrying...');
+          setTimeout(refreshFolders, 500);
+          return;
+        }
+
+        folderList.innerHTML = '';
+        processFolderList.innerHTML = '';
+
+        if (res.folders.length === 0) {
+          folderList.innerHTML = '<option>No folders found</option>';
+          processFolderList.innerHTML = '<option>No folders found</option>';
+        } else {
+          res.folders.forEach(folder => {
+            const opt1 = document.createElement('option');
+            opt1.value = folder;
+            opt1.textContent = folder;
+            folderList.appendChild(opt1);
+
+            const opt2 = document.createElement('option');
+            opt2.value = folder;
+            opt2.textContent = folder;
+            processFolderList.appendChild(opt2);
+          });
+        }
+        console.log(`Loaded ${res.folders.length} folders`);
+        // Auto-load image list for the currently selected processing folder
+        refreshImageList();
+      } catch (err) {
+        console.error('Error refreshing folders:', err);
+        // Retry on error
+        setTimeout(refreshFolders, 1000);
+      }
+    }
+
+    async function viewFolder() {
+      if (!ensureApi('status_download')) return;
+      const folderList = document.getElementById('folder_list');
+      const selectedFolder = folderList.value;
+
+      if (!selectedFolder || selectedFolder === 'Loading folders...' || selectedFolder === 'No folders found') {
+        return;
+      }
+
+      try {
+        const res = await window.pywebview.api.get_folder_contents(selectedFolder);
+        const contentsDiv = document.getElementById('folder_contents');
+
+        if (res.files.length === 0) {
+          contentsDiv.innerHTML = '<p style="text-align: center; color: #94a3b8; padding: 40px;">Folder is empty</p>';
+        } else {
+          let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px;">';
+          res.files.forEach((file, idx) => {
+            html += `
+              <div style="text-align: center;">
+                <img src="data:image/png;base64,${file.data}" style="width: 100%; height: 120px; object-fit: contain; border: 1px solid #cbd5e1; border-radius: 6px; background: white;" />
+                <div style="font-size: 11px; color: #64748b; margin-top: 4px;">${file.name}</div>
+              </div>
+            `;
+          });
+          html += '</div>';
+          contentsDiv.innerHTML = html;
+        }
+      } catch (err) {
+        document.getElementById('folder_contents').innerHTML = '<p style="color: red;">Error loading folder contents</p>';
+      }
+    }
+
+    async function processImages() {
+      if (!ensureApi('status_process')) return;
+      const folder = document.getElementById('process_folder').value;
+
+      if (!folder || folder === 'Loading folders...' || folder === 'No folders found') {
+        setHTML('status_process', '<span style="color:orange;">Please select a folder</span>');
+        return;
+      }
+
+      try {
+        // Reset info panels
+        setHTML('processing_info', 'Starting processing...');
+        setHTML('method1_info', 'Method 1 processing...');
+        setHTML('method2_info', 'Method 2 processing...');
+
+        const method1 = document.getElementById('method1').value;
+        const method2 = document.getElementById('method2').value;
+
+        const noiseType = document.getElementById('noise_type').value;
+        const randomSeedInput = document.getElementById('random_seed').value;
+        const payload = {
+          folder: folder,
+          method1: method1,
+          method2: method2,
+          noise_type: noiseType,
+          laplacian_scale: Number(document.getElementById('laplacian_scale').value),
+          random_seed: randomSeedInput ? Number(randomSeedInput) : null,
+          train_count: Math.max(2, Number(document.getElementById('train_count').value) || 2),
+          test_count: Math.max(1, Number(document.getElementById('test_count').value) || 1),
+          batch_size: Math.max(1, Number(document.getElementById('batch_size').value) || 1)
+        };
+
+        // Add Mixture of Gaussians parameters if selected
+        if (noiseType === 'mixture_gaussian') {
+          payload.mog_weights = [
+            Number(document.getElementById('mog_weight1').value),
+            Number(document.getElementById('mog_weight2').value),
+            Number(document.getElementById('mog_weight3').value)
+          ];
+          payload.mog_means = [
+            Number(document.getElementById('mog_mean1').value),
+            Number(document.getElementById('mog_mean2').value),
+            Number(document.getElementById('mog_mean3').value)
+          ];
+          payload.mog_sigmas = [
+            Number(document.getElementById('mog_sigma1').value),
+            Number(document.getElementById('mog_sigma2').value),
+            Number(document.getElementById('mog_sigma3').value)
+          ];
+        }
+
+        setHTML('status_process', 'Processing images...');
+        const res = await window.pywebview.api.process_images(payload);
+
+        if (res.success) {
+          totalImages = res.total_images;
+          currentImageIndex = 0;
+          processedResults = res.results;  // Store results
+          displayCurrentImage(processedResults[0]);
+
+          // Display processing details (already updated in real-time by Python)
+          setHTML('status_process', `<span style="color:green;">✓ Completed! Processed ${res.total_images} images</span>`);
+          updateImageCounter();
+        } else {
+          setHTML('status_process', `<span style="color:red;">Error: ${res.error}</span>`);
+        }
+      } catch (err) {
+        setHTML('status_process', '<span style="color:red;">'+err+'</span>');
+      }
+    }
+
+    function displayCurrentImage(data) {
+      document.getElementById('result1').innerHTML = `<img src="data:image/png;base64,${data.method1}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+      document.getElementById('result2').innerHTML = `<img src="data:image/png;base64,${data.method2}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+      document.getElementById('result_original').innerHTML = `<img src="data:image/png;base64,${data.original}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+      document.getElementById('result_blur').innerHTML = `<img src="data:image/png;base64,${data.blurred}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+
+      // Update labels with method names if available
+      if (data.method1_name) {
+        document.getElementById('result1_label').textContent = data.method1_name;
+      }
+      if (data.method2_name) {
+        document.getElementById('result2_label').textContent = data.method2_name;
+      }
+      if (data.noise_type_label) {
+        document.getElementById('result_blur_label').textContent = data.noise_type_label;
+      }
+    }
+
+    async function prevImage() {
+      if (currentImageIndex > 0) {
+        currentImageIndex--;
+        await loadImage(currentImageIndex);
+        updateImageCounter();
+      }
+    }
+
+    async function nextImage() {
+      if (currentImageIndex < totalImages - 1) {
+        currentImageIndex++;
+        await loadImage(currentImageIndex);
+        updateImageCounter();
+      }
+    }
+
+    async function loadImage(index) {
+      // Use cached results instead of calling backend
+      if (processedResults && processedResults[index]) {
+        displayCurrentImage(processedResults[index]);
+      } else {
+        console.error('No processed results available');
+      }
+    }
+
+    function updateImageCounter() {
+      const counter = String(currentImageIndex).padStart(3, '0');
+      document.getElementById('image_counter').textContent = counter;
+    }
+
+    // Initialize on load
+    window.addEventListener('load', () => {
+      refreshFolders();
+    });
+  </script>
+</body>
+</html>
+"""
+
+
+def main():
+    # Suppress pywebview accessibility warnings
+    import logging
+    import warnings
+    logging.getLogger('pywebview').setLevel(logging.CRITICAL)
+    warnings.filterwarnings('ignore')
+
+    # Redirect stderr to suppress Windows accessibility errors
+    import sys, os as _os
+    _log = _os.path.join(_os.environ.get("TEMP", "."), "gcm_crash.log")
+    def _ck(msg):
+        with open(_log, "a", encoding="utf-8") as _f:
+            _f.write(f"checkpoint: {msg}\n")
+            _f.flush()
+
+    # Bump default stack size for Python-created threads. Without this, pythonnet's
+    # CLR initialization on background threads overflows the default 1 MB stack
+    # (the main-thread reserve from /STACK doesn't propagate to threading.Thread).
+    import threading as _threading
+    try:
+        _threading.stack_size(16 * 1024 * 1024)
+    except (RuntimeError, ValueError):
+        pass
+
+    if sys.platform == 'win32':
+        # Redirect to a log file (not /dev/null) so pywebview's logger.exception
+        # output is captured — otherwise JS-bridge setup failures are invisible.
+        try:
+            sys.stderr = open(
+                _os.path.join(_os.environ.get("TEMP", "."), "gcm_stderr.log"),
+                "w", encoding="utf-8", buffering=1)
+        except Exception:
+            sys.stderr = open(os.devnull, 'w')
+    # Mirror webview's own logger to a file so logger.exception calls inside
+    # generate_js_object actually surface.
+    import logging as _logging
+    _wlh = _logging.FileHandler(
+        _os.path.join(_os.environ.get("TEMP", "."), "gcm_webview.log"),
+        mode="w", encoding="utf-8")
+    _wlh.setLevel(_logging.DEBUG)
+    _wlh.setFormatter(_logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    _logging.getLogger("pywebview").addHandler(_wlh)
+    _logging.getLogger("pywebview").setLevel(_logging.DEBUG)
+    _ck("after stderr redirect")
+
+    get_random_matrix_folder()
+    _ck("after get_random_matrix_folder")
+
+    try:
+        import pythonnet as _pn
+        _ck("imported pythonnet")
+        _pn.load()
+        _ck("pythonnet.load done")
+        import clr  # noqa: F401
+        _ck("imported clr")
+    except Exception:
+        import traceback as _tb
+        with open(_log, "a", encoding="utf-8") as _f:
+            _f.write("\n--- pythonnet load failure ---\n")
+            _tb.print_exc(file=_f)
+        raise
+
+    atexit.register(cleanup_temp_folder)
+    _ck("registered cleanup")
+
+    api = Bridge(None)
+    _ck("created Bridge")
+
+    # Note: we do NOT pass js_api=api. pywebview's get_functions walks
+    # `api.window = window` and recurses into Window's internals (events,
+    # locks, threads), which under Nuitka-compiled methods leads to
+    # `generate_func` hanging forever and JS never receiving the API. We
+    # register every public method via window.expose() below instead.
+    window = webview.create_window(
+        "Matrix Analysis Lab",
+        html=HTML,
+        width=1300,
+        height=900,
+    )
+    _ck("created window")
+
+    api.window = window
+
+    # Nuitka compiles methods to a private `compiled_method` type that
+    # pywebview's util.py rejects via inspect.ismethod/isfunction, so the JS
+    # side ends up with `window.pywebview.api.<name> is not a function`.
+    # Build plain Python wrappers (signature `(payload=None)`) for every
+    # public Bridge method and expose those — wrapped functions are real
+    # `function` objects whose introspection works in both source and
+    # Nuitka-compiled mode.
+    _api_methods = [
+        "im_vs_z",
+        "roots_vs_beta",
+        "eigen_distribution",
+        "list_random_matrix_folders",
+        "list_folder_images",
+        "get_folder_contents",
+        "import_local_folder",
+        "download_images_playwright",
+        "process_images",
+        "get_processed_image",
+    ]
+    def _make_wrapper(_method, _name):
+        # *args swallows whatever JS sends. pywebview reports `params=[]` to
+        # JS based on the wrapper's argspec, but the JS shim forwards the
+        # actual call args via Array.prototype.slice.call(arguments) anyway,
+        # so 0-arg and 1-arg JS calls both reach the real method correctly.
+        def _wrapper(*args):
+            return _method(*args)
+        _wrapper.__name__ = _name
+        return _wrapper
+
+    _wrappers = []
+    for _n in _api_methods:
+        _m = getattr(api, _n, None)
+        if _m is None:
+            _ck(f"WARNING: api.{_n} missing")
+            continue
+        _wrappers.append(_make_wrapper(_m, _n))
+    window.expose(*_wrappers)
+    _ck(f"exposed {len(_wrappers)} api methods: "
+        + ",".join(getattr(w, "__name__", "?") for w in _wrappers))
+    _ck(f"window._functions registry size: {len(window._functions)}")
+
+    _ck("about to call webview.start")
+
+    webview.start()
+    _ck("webview.start returned")
+
+
+if __name__ == "__main__":
+    import os, sys, traceback
+    _log = os.path.join(os.environ.get("TEMP", "."), "gcm_crash.log")
+    try:
+        with open(_log, "w", encoding="utf-8") as _f:
+            _f.write("startup\n")
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        with open(_log, "a", encoding="utf-8") as _f:
+            _f.write("\n--- exception ---\n")
+            traceback.print_exc(file=_f)
+        sys.exit(1)

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+
+# Nuitka build outputs
+dist/
+build_output/
+*.build/
+*.dist/
+*.onefile-build/
+nuitka-crash-report.xml
+
+# Build / packaging script (kept local)
+BUILD.ps1
+
+# MSIX packages
+*.msix
+*.msixbundle
+
+# Code-signing certificates (keep local)
+*.pfx
+*.cer
+
+# Runtime crash logs
+gcm_*.log
+
+# IDE / editor
+.vscode/
+.idea/
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
