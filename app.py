@@ -81,6 +81,36 @@ def compute_cubic_roots(z, beta, a, y):
     return solve_cubic_numpy(a_coef, b_coef, c_coef, d_coef)
 
 
+def generalized_mp_density(z_values, y, beta, a):
+    """Generalized Marchenko-Pastur density f_{y,H}(z) for H = beta*delta_a + (1-beta)*delta_1.
+
+    Returns the density on the same grid as z_values (zero where the discriminant is
+    non-positive, since outside the support the cubic has three real roots).
+    """
+    z = np.asarray(z_values, dtype=float)
+    f = np.zeros_like(z)
+    mask = z > 0
+    if not np.any(mask):
+        return f
+    zp = z[mask]
+    A = a * (zp - y + 1.0) + zp
+    B = a + zp - y + 1.0 - y * beta * (a - 1.0)
+    az = a * zp
+    a2z2 = az * az
+    a3z3 = a2z2 * az
+    P = A * B / (6.0 * a2z2) - A**3 / (27.0 * a3z3) - 1.0 / (2.0 * az)
+    Q = B / (3.0 * az) - A * A / (9.0 * a2z2)
+    D = P * P + Q**3
+    pos = D > 0
+    sqrtD = np.zeros_like(D)
+    sqrtD[pos] = np.sqrt(D[pos])
+    term = np.cbrt(P + sqrtD) - np.cbrt(P - sqrtD)
+    density = np.where(pos, (np.sqrt(3.0) / (2.0 * np.pi * y)) * term, 0.0)
+    density = np.clip(density, 0.0, None)
+    f[mask] = density
+    return f
+
+
 def track_roots_consistently(grid_values, all_roots):
     n_points = len(grid_values)
     n_roots = all_roots[0].shape[0]
@@ -574,34 +604,78 @@ class Bridge:
             if cb:
                 cb(3, total_steps)
 
-            B_n = S_n @ T_n
-            eigenvalues = np.linalg.eigvalsh(B_n)
+            # B_n = S_n T_n is NOT symmetric, so eigvalsh on it is wrong (drops the
+            # rank-deficient zero eigenvalues). B_n shares eigenvalues with the
+            # symmetric PSD matrix T_n^{1/2} S_n T_n^{1/2} = (1/n)(T^{1/2}X)(T^{1/2}X)^T,
+            # so compute them there to recover the full spectrum (including zeros).
+            sqrt_diag = np.sqrt(diag_entries)
+            X_sym = sqrt_diag[:, None] * X
+            M = (1.0 / n) * (X_sym @ X_sym.T)
+            eigenvalues = np.linalg.eigvalsh(M)
             pbar.update(1)
             if cb:
                 cb(4, total_steps)
 
-            kde = gaussian_kde(eigenvalues)
-            x_vals = np.linspace(float(np.min(eigenvalues)), float(np.max(eigenvalues)), 400)
-            kde_vals = kde(x_vals)
+            # Separate the zero/near-zero atom from the bulk for plotting.
+            zero_tol = 1e-8 * max(1.0, float(eigenvalues.max()))
+            zero_mask = eigenvalues <= zero_tol
+            zero_count = int(zero_mask.sum())
+            zero_mass = zero_count / len(eigenvalues)
+            bulk = eigenvalues[~zero_mask]
+            if bulk.size >= 2 and np.ptp(bulk) > 1e-12:
+                kde = gaussian_kde(bulk)
+                bulk_lo = float(bulk.min())
+                bulk_hi = float(bulk.max())
+                x_vals = np.linspace(bulk_lo, bulk_hi, 400)
+                # Plotting only the bulk: histogram (probability density), KDE, and
+                # theoretical density all integrate to 1 over the bulk range.
+                kde_vals = kde(x_vals)
+            else:
+                x_vals = np.array([])
+                kde_vals = np.array([])
             pbar.update(1)
             if cb:
                 cb(5, total_steps)
 
+        ev_min = float(np.min(eigenvalues))
+        ev_max = float(np.max(eigenvalues))
+        # Theoretical Generalized-MP density. The simulation uses an effective aspect
+        # ratio y_eff = max(y, 1/y); the formula's y matches that. Since we plot
+        # only the bulk (zeros excluded), rescale the continuous part up by y_eff so
+        # it integrates to 1 over the bulk and lines up with the empirical histogram.
+        y_theory = y_eff
+        bulk_min = float(bulk.min()) if bulk.size else max(ev_min, 1e-6)
+        bulk_max = float(bulk.max()) if bulk.size else max(ev_max, bulk_min + 1e-6)
+        theory_x = np.linspace(bulk_min, bulk_max, 800)
+        theory_y = generalized_mp_density(theory_x, y_theory, beta, a)
+        if y_theory > 1.0:
+            theory_y = theory_y * y_theory
+
         stats = {
-            "min": float(np.min(eigenvalues)),
-            "max": float(np.max(eigenvalues)),
+            "min": ev_min,
+            "max": ev_max,
             "mean": float(np.mean(eigenvalues)),
             "std": float(np.std(eigenvalues)),
+            "zero_count": zero_count,
+            "zero_mass": zero_mass,
+            "y_eff": y_theory,
         }
         explanation = (
-            "Histogram + KDE of eigenvalues for B_n = S_n T_n with mixed diagonal entries. Use stats to compare spread."
+            "Histogram of eigenvalues for B_n = S_n T_n with mixed diagonal entries, "
+            "overlaid with the theoretical Generalized Marchenko-Pastur density "
+            "f_{y,H}(z) for H = β·δ_a + (1−β)·δ_1 (continuous part). When y_eff > 1, "
+            "the spectrum has a point mass at zero of size 1 − 1/y_eff."
         )
         self._log("eigen:done", {"stats": stats})
+        # Plot only the nonzero (bulk) eigenvalues; the point mass at zero is
+        # tracked in stats but excluded from the visualization.
         return {
             "data": {
-                "eigenvalues": eigenvalues.tolist(),
+                "eigenvalues": bulk.tolist(),
                 "kde_x": x_vals.tolist(),
-                "kde_y": kde_vals.tolist()
+                "kde_y": kde_vals.tolist(),
+                "theory_x": theory_x.tolist(),
+                "theory_y": theory_y.tolist(),
             },
             "stats": stats,
             "progress": progress,
@@ -1565,6 +1639,15 @@ HTML = r"""
                 <p>• <code>β</code>: Fraction of spiked eigenvalues</p>
                 <p>• <code>n</code>: Number of samples (images)</p>
                 <p>• <code>p</code>: Dimension (image pixels)</p>
+
+                <h4>Generalized Marchenko–Pastur density:</h4>
+                <p>For <code>H = β·δ_a + (1−β)·δ_1</code> and <code>z &gt; 0</code>:</p>
+                <code>A = a(z − y + 1) + z</code><br>
+                <code>B = a + z − y + 1 − y·β·(a − 1)</code><br>
+                <code>P = AB/(6a²z²) − A³/(27a³z³) − 1/(2az)</code><br>
+                <code>Q = B/(3az) − A²/(9a²z²)</code><br>
+                <code>D = P² + Q³</code>
+                <p>If <code>D &gt; 0</code>: <code>f<sub>y,H</sub>(z) = (√3 / (2π y)) · (∛(P+√D) − ∛(P−√D))</code>, else 0.</p>
               </div>
             </details>
             <h3>📊 Eigenvalue Distribution</h3>
@@ -2047,7 +2130,7 @@ HTML = r"""
         };
         const res = await window.pywebview.api.eigen_distribution(payload);
 
-        const {eigenvalues, kde_x, kde_y} = res.data;
+        const {eigenvalues, kde_x, kde_y, theory_x, theory_y} = res.data;
 
         // Plot eigenvalue distribution
         const el6 = document.getElementById('slot6');
@@ -2060,17 +2143,28 @@ HTML = r"""
             x: eigenvalues,
             type: 'histogram',
             histnorm: 'probability density',
-            name: 'Histogram',
+            name: 'Histogram (bulk)',
             marker: {color: '#4C7EF3', opacity: 0.65}
-          },
-          {
+          }
+        ];
+        if (kde_x && kde_x.length) {
+          traces.push({
             x: kde_x,
             y: kde_y,
             mode: 'lines',
             name: 'KDE',
             line: {color: '#FF8042', width: 3}
-          }
-        ];
+          });
+        }
+        if (theory_x && theory_y) {
+          traces.push({
+            x: theory_x,
+            y: theory_y,
+            mode: 'lines',
+            name: 'Generalized MP density',
+            line: {color: '#2CA02C', width: 3, dash: 'dash'}
+          });
+        }
 
         Plotly.newPlot('slot6', traces, {
           title: `Eigenvalue distribution (y=${payload.p / payload.n}, beta=${payload.beta}, a=${payload.a})`,
@@ -2088,6 +2182,8 @@ HTML = r"""
           <div class="metric">max: ${res.stats.max.toFixed(4)}</div>
           <div class="metric">mean: ${res.stats.mean.toFixed(4)}</div>
           <div class="metric">std: ${res.stats.std.toFixed(4)}</div>
+          <div class="metric">zeros: ${res.stats.zero_count} (${(res.stats.zero_mass*100).toFixed(1)}%)</div>
+          <div class="metric">y_eff: ${res.stats.y_eff.toFixed(3)}</div>
         `;
         setProgress('bar4', 'status4', res.progress || []);
         setHTML('explain4', res.explanation || '');
